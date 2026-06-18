@@ -113,9 +113,19 @@ nut.js / OS-input / a no-CDP driver.
 (`--headless-new`) fill the form fine but the Submit is rejected by reCAPTCHA every time
 (5/5 retries) — reCAPTCHA scores headless as bot. **A genuinely headed browser with a
 display is required.** For a server, run headed Chrome under a **virtual display (xvfb)**
-on Linux; on macOS you need a real logged-in GUI session. IP reputation still matters
-(residential best). `--handoff` remains a fallback (human clicks Submit). **Never** add
-CAPTCHA-solving/token-relay services.
+on Linux; on macOS you need a real logged-in GUI session. `--handoff` remains a fallback
+(human clicks Submit). **Never** add CAPTCHA-solving/token-relay services.
+
+### Measured reCAPTCHA v3 score (cleantalk.org test, a proxy for the Enterprise score)
+- Any headless mode: **0.00** (flat floor — Google hard-flags headless; no tweak helped).
+- Headed real Chrome: **0.1–0.3** (low but nonzero; enough to pass AbbVie with the retry).
+- The FINGERPRINT_MASK and `--disable-blink-features=AutomationControlled` did **not**
+  reliably raise the headed score — so the levers are NOT fingerprint tweaks. The real
+  levers for a higher/steadier score are: a **warmed profile signed into a Google account
+  with browsing history** (`havn warm --user-data-dir <dir>`), a **residential IP** with
+  good reputation, and **not hammering reCAPTCHA** (one check per enrollment is fine;
+  rapid repeated checks lower the IP's score). The 0.1–0.3 readings are pessimistic —
+  back-to-back score tests had already degraded this IP.
 
 ### History (for context)
 Before the timing quirk was understood, we tried headless, headed real Chrome, a
