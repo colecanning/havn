@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Run artifacts: screenshots, confirmation captures, mapping reports.
+# These may contain PII or live-form snapshots — never commit them.
+artifacts/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+*.log
+
+# Playwright
+/test-results/
+/playwright-report/
