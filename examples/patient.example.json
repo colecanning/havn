@@ -1,0 +1,16 @@
+{
+  "diagnosis": "plaque_psoriasis",
+  "first_name": "Test",
+  "last_name": "Patient",
+  "email": "placeholder@example.com",
+  "date_of_birth": "1985-04-12",
+  "address": {
+    "line1": "123 Example Street",
+    "line2": "Apt 4",
+    "city": "Columbus",
+    "state": "OH",
+    "zip": "43215"
+  },
+  "phone": "6145551234",
+  "insurance_type": "commercial"
+}
