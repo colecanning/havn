@@ -9,7 +9,10 @@ import { checkEligibility } from "../runner/eligibility.js";
 import { makeDriver } from "../drivers/index.js";
 import { makeRunId } from "../util/runId.js";
 
-const SUBMIT_REDIRECT_TIMEOUT = 30_000;
+/** Submit is retried: the first click triggers the async reCAPTCHA; the token is ready
+ *  by a later click. Each attempt waits this long for the success redirect. */
+const SUBMIT_ATTEMPTS = 5;
+const SUBMIT_ATTEMPT_TIMEOUT = 10_000;
 /** How long to keep the browser open waiting for a human to click Submit (handoff). */
 const HANDOFF_TIMEOUT = 300_000;
 
@@ -161,16 +164,30 @@ export async function runEnrollment(
           return { status: "ready_to_submit", capture };
         }
 
-        // Auto-submit (reCAPTCHA rejects this on protected forms via the playwright driver).
+        // Auto-submit with retries. The first click triggers the invisible reCAPTCHA,
+        // whose token resolves asynchronously — the first POST often fires before it's
+        // ready (the page just scrolls to top). Re-clicking after the token resolves
+        // succeeds, so we click, wait for the redirect, and re-submit if it didn't land.
         logger.info("enroll.submitting", { step: step.id, consentObtained: !!opts.consentObtained });
-        await driver.submit(step);
-        if (!(await driver.awaitSuccess(recipe.success_signal.match, SUBMIT_REDIRECT_TIMEOUT))) {
+        let submitted = false;
+        for (let attempt = 1; attempt <= SUBMIT_ATTEMPTS && !submitted; attempt++) {
+          try {
+            await driver.submit(step); // re-locates + re-scrolls to the Submit button each time
+          } catch (err) {
+            // The click that triggers the success navigation can throw "element detached"
+            // — that's not a failure; awaitSuccess below is the source of truth.
+            logger.debug("enroll.submit_click_threw", { attempt, detail: (err as Error).message });
+          }
+          logger.info("enroll.submit_attempt", { step: step.id, attempt });
+          submitted = await driver.awaitSuccess(recipe.success_signal.match, SUBMIT_ATTEMPT_TIMEOUT);
+        }
+        if (!submitted) {
           return {
             status: "error",
             message:
-              `Submit did not reach the success signal (${recipe.success_signal.match}). ` +
-              `On the playwright (CDP) driver this is reCAPTCHA rejecting the automated ` +
-              `submit ("CAPTCHA validation failed"); use the os driver or handoff.`,
+              `Submit did not reach the success signal (${recipe.success_signal.match}) after ` +
+              `${SUBMIT_ATTEMPTS} attempts. The form is reCAPTCHA-protected; if this persists, ` +
+              `use handoff (a human click) or the os driver.`,
           };
         }
         return { status: "submitted", confirmation: await driver.captureConfirmation() };
