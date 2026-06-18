@@ -32,8 +32,12 @@ pnpm validate examples/patient.example.json
 # Dry run: fill through Confirm and STOP before Submit (default — submit is OFF):
 pnpm enroll examples/patient.example.json
 
-# Real submission (irreversible). Add --test-email to route to your test inbox:
-pnpm enroll examples/patient.example.json -- --submit --test-email
+# Enroll for real (recommended): fill everything + consent, then a HUMAN clicks Submit
+# (the form's invisible reCAPTCHA rejects automated submits). Opens a real browser:
+pnpm enroll examples/patient.example.json -- --handoff --consent --test-email
+
+# Auto-submit (left in for non-CAPTCHA forms; rejected by reCAPTCHA on Skyrizi):
+pnpm enroll examples/patient.example.json -- --submit --consent --test-email
 
 # Re-map the live form (drives it with dummy data, never submits):
 pnpm map
@@ -77,7 +81,9 @@ docs/enrollment-flow.md  human walkthrough
   validators that ignore programmatic value-setting, and an **email field that rejects
   `+`**. The runner filters to visible elements, types with real key events, and uses
   Gmail's dot trick for test addresses. Details in [CLAUDE.md](CLAUDE.md).
-- **The final Submit cannot be fully automated** (by design): the Confirm step has a
-  required health-data-sharing consent checkbox and is protected by invisible reCAPTCHA.
-  v1 fills everything and stops at Confirm; a human completes consent + CAPTCHA + Submit.
-  `--submit` will fill and try, then stop at that wall without creating an enrollment.
+- **The final Submit is gated by invisible reCAPTCHA Enterprise** (confirmed: the server
+  rejects automated submits with "CAPTCHA validation failed"). The agent can auto-check
+  the required consent box (`--consent`, when consent was obtained from the patient), but
+  it does **not** try to defeat the reCAPTCHA. Use **`--handoff`** to fill everything and
+  let a human perform the final click. For scale, an official enrollment API is the
+  durable path.

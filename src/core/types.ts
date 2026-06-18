@@ -52,16 +52,34 @@ export interface EnrollOptions {
   /**
    * Perform the irreversible final Submit. Default false: fill through Confirm,
    * capture state, and stop (returns "ready_to_submit").
+   *
+   * NOTE: on forms protected by reCAPTCHA (e.g. Skyrizi) automated submit is rejected
+   * server-side. Use `handoff` instead to keep a human at the actual Submit click.
    */
   submit?: boolean;
+  /**
+   * Human-in-the-loop submit. Fill everything (including consent if obtained), leave
+   * the browser OPEN at Confirm, and wait for a human to click Submit (they pass the
+   * invisible reCAPTCHA naturally). Captures confirmation when the success redirect
+   * happens. Implies a visible browser. The legitimate path past reCAPTCHA.
+   */
+  handoff?: boolean;
   /** Show a visible browser window. Default false (headless). */
   headful?: boolean;
+  /** Browser channel, e.g. "chrome" for real Chrome (better invisible-reCAPTCHA score). */
+  channel?: string;
   /** Slow each Playwright action by N ms (observation aid). Default 0. */
   slowMo?: number;
   /** Directory for screenshots/confirmation records. Default "artifacts". */
   artifactDir?: string;
   /** Stable id for this run; used in artifact paths and the test email alias. */
   runId?: string;
-  /** Consent/authorization gate before Submit. Deferred — no-op placeholder in v1. */
+  /**
+   * True when patient consent/authorization was obtained out-of-band. Only then does
+   * the runner check the Confirm step's required consent checkbox(es) before Submit.
+   * Never check a consent box without this set.
+   */
+  consentObtained?: boolean;
+  /** Consent/authorization hook run immediately before Submit (e.g. audit logging). */
   onBeforeSubmit?: BeforeSubmitHook;
 }

@@ -5,12 +5,14 @@ import { collectNeeds } from "../patient/validate.js";
 import { createLogger } from "../logging/logger.js";
 import { launchSession } from "../browser/session.js";
 import { runPreflight } from "../browser/preflight.js";
-import { fillStep, advanceStep, clickAdvance } from "../runner/step.js";
+import { fillStep, advanceStep, clickAdvance, applyConsent } from "../runner/step.js";
 import { checkEligibility } from "../runner/eligibility.js";
 import { captureReady, captureConfirmation } from "../runner/confirm.js";
 import { makeRunId } from "../util/runId.js";
 
 const SUBMIT_REDIRECT_TIMEOUT = 30_000;
+/** How long to keep the browser open waiting for a human to click Submit (handoff). */
+const HANDOFF_TIMEOUT = 300_000;
 
 /**
  * Run one patient through a recipe's enrollment flow, deterministically.
@@ -44,7 +46,11 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
     return { status: "needs_info", needs };
   }
 
-  const session = await launchSession({ headful: opts.headful, slowMo: opts.slowMo });
+  const session = await launchSession({
+    headful: opts.headful || opts.handoff, // handoff needs a visible window for the human
+    slowMo: opts.slowMo,
+    ...(opts.channel ? { channel: opts.channel } : {}),
+  });
   try {
     const { page } = session;
     logger.info("enroll.start", { drug: recipe.drug, submit: !!opts.submit });
@@ -88,14 +94,59 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
 
       // Final (irreversible) step handling.
       if (step.advance?.irreversible) {
-        if (!opts.submit) {
+        // Default: fill through Confirm and stop. (Neither auto-submit nor handoff.)
+        if (!opts.submit && !opts.handoff) {
           const capture = await captureReady(page, step, artifactDir, runId, logger);
           logger.info("enroll.ready_to_submit", { step: step.id });
           return { status: "ready_to_submit", capture };
         }
-        // Consent/authorization gate — deferred (no-op) placeholder in v1.
+
+        // Required consent checkbox(es): only checked when consent was obtained
+        // out-of-band. Without it, the form (correctly) blocks Submit.
+        if (step.consent_checkboxes?.length) {
+          if (!opts.consentObtained) {
+            return {
+              status: "error",
+              message:
+                `Confirm requires patient consent (${step.consent_checkboxes
+                  .map((c) => c.name)
+                  .join(", ")}). Re-run with consent obtained to check it.`,
+            };
+          }
+          const consented = await applyConsent(page, step, logger);
+          if (!consented) {
+            return {
+              status: "validation_failed",
+              step: step.id,
+              fieldKey: "(consent)",
+              detail: "could not confirm the required consent checkbox was checked",
+            };
+          }
+        }
+
+        // Consent/authorization hook (e.g. audit logging) — runs before Submit.
         if (opts.onBeforeSubmit) await opts.onBeforeSubmit({ runId, patient: opts.patient });
-        logger.info("enroll.submitting", { step: step.id });
+
+        // Handoff: everything is filled + consent checked; a human clicks Submit in
+        // the open window (passing the invisible reCAPTCHA naturally). We wait for the
+        // success redirect, then capture confirmation.
+        if (opts.handoff) {
+          const capture = await captureReady(page, step, artifactDir, runId, logger);
+          logger.info("enroll.handoff_waiting", { timeoutMs: HANDOFF_TIMEOUT, step: step.id });
+          try {
+            await page.waitForURL((url) => url.toString().includes(recipe.success_signal.match), {
+              timeout: HANDOFF_TIMEOUT,
+            });
+          } catch {
+            logger.warn("enroll.handoff_timeout", { step: step.id });
+            return { status: "ready_to_submit", capture };
+          }
+          const confirmation = await captureConfirmation(page, artifactDir, runId, logger);
+          return { status: "submitted", confirmation };
+        }
+
+        // Auto-submit (will be rejected by reCAPTCHA on protected forms like Skyrizi).
+        logger.info("enroll.submitting", { step: step.id, consentObtained: !!opts.consentObtained });
         await clickAdvance(page, step);
         try {
           await page.waitForURL((url) => url.toString().includes(recipe.success_signal.match), {
@@ -106,10 +157,9 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
             status: "error",
             message:
               `Submit did not reach the success signal (${recipe.success_signal.match}). ` +
-              `The Confirm step requires a health-data consent checkbox and is protected by ` +
-              `invisible reCAPTCHA Enterprise — automated submit cannot clear these. v1 is ` +
-              `meant to stop at Confirm (submit off) and hand off to a human for consent + ` +
-              `CAPTCHA + Submit.`,
+              `This form is protected by invisible reCAPTCHA Enterprise, which rejects ` +
+              `automated submits server-side ("CAPTCHA validation failed"). Use handoff ` +
+              `mode so a human performs the final Submit.`,
           };
         }
         const confirmation = await captureConfirmation(page, artifactDir, runId, logger);

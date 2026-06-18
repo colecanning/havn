@@ -85,6 +85,15 @@ export const StepSpec = z
      */
     signature: z.string().optional(),
     fields: z.array(FieldSpec).default([]),
+    /**
+     * Consent/authorization checkboxes that must be checked before Submit. Checked
+     * only when consent has been obtained from the patient out-of-band and the caller
+     * passes consentObtained (CLI: --consent). List only REQUIRED program-consent
+     * boxes here — leave optional marketing opt-ins unchecked.
+     */
+    consent_checkboxes: z
+      .array(z.object({ name: z.string().min(1), label: z.string().optional() }).strict())
+      .optional(),
     advance: AdvanceSpec.optional(),
     notes: z.string().optional(),
   })

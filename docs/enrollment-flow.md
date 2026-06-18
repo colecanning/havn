@@ -47,27 +47,34 @@ Government insurance — Medicare (including Part D), Medicaid, TRICARE, VA — 
 type and, if it isn't commercial, **halts before going any further** and reports the
 patient as ineligible. This happens no matter what the submit setting is.
 
-## Submit is off by default — and can't be fully automated anyway
+## Three ways to handle the final Submit
 
 By default the agent fills the whole form and **stops at the Confirm step**, saving a
-screenshot so you can see exactly what would be submitted. It returns
-`ready_to_submit` and does nothing irreversible.
+screenshot. It returns `ready_to_submit` and does nothing irreversible.
 
-We confirmed by testing that the **final Submit can't be automated**, by AbbVie's
-design — and that's fine, it's the safe handoff point:
+The final Submit has two gates, and how you handle them is a mode:
 
-1. The Confirm step has a **required consent checkbox**: *"I consent to the collection,
-   use, and disclosure of my health-related personal data … for online targeted
-   advertising."* That's a decision for the patient, not the agent — it's the consent
-   piece we deliberately left out of v1, so the agent does not check it.
-2. The step is protected by **invisible reCAPTCHA** (anti-bot), which is built to stop
-   automated submissions.
+1. A **required consent checkbox**: *"I consent to the collection, use, and disclosure of
+   my health-related personal data … for online targeted advertising."* If you've
+   collected the patient's consent first, run with **`--consent`** and the agent checks
+   it. Without that flag it's never checked.
+2. **Invisible reCAPTCHA** (anti-bot). We confirmed by testing that AbbVie's server
+   **rejects automated submissions** ("CAPTCHA validation failed") — both headless and a
+   real headed Chrome under automation are blocked. This is by design and not something
+   we work around.
 
-So the right shape for v1 is: the agent does all the tedious form-filling and stops at
-Confirm; a person then reviews, gives consent, clears the CAPTCHA, and clicks Submit.
-Passing `--submit` will still fill everything and try, but it will stop at the consent +
-CAPTCHA wall and report an error without creating an enrollment. (The submit path and a
-consent-hook are wired in code for a future where consent is captured properly.)
+So the three modes are:
+
+- **Default (no flag):** fill through Confirm and stop. Safe, nothing irreversible.
+- **`--handoff --consent` (recommended to actually enroll):** the agent fills everything
+  and checks consent, then **opens a real browser and waits for a person to click
+  Submit**. The human clears the invisible reCAPTCHA just by being human. The agent then
+  captures the confirmation. This is ~95% automated — a person only does the final click.
+- **`--submit --consent` (will fail here):** auto-clicks Submit. The reCAPTCHA rejects it
+  and no enrollment is created. Left in for forms that aren't CAPTCHA-protected.
+
+For high volume, the durable answer is an **official enrollment API/partnership** with
+AbbVie's co-pay program — not driving the consumer form.
 
 ## What can happen at the end of a run
 

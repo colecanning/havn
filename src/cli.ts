@@ -70,9 +70,12 @@ function presentResult(result: EnrollResult): void {
       );
       break;
     case "ready_to_submit":
-      console.log("READY TO SUBMIT — filled through Confirm and stopped (submit disabled).");
+      console.log("READY TO SUBMIT — filled through Confirm and stopped.");
       console.log(`  Confirm screenshot: ${result.capture.screenshotPath}`);
-      console.log("  Re-run with --submit to perform the irreversible Submit.");
+      console.log(
+        "  Skyrizi rejects automated Submit (reCAPTCHA). Use --handoff (+ --consent) to" +
+          " open the browser and let a human click Submit.",
+      );
       break;
     case "submitted":
       console.log("SUBMITTED — enrollment confirmed.");
@@ -116,9 +119,20 @@ program
   .command("enroll")
   .description("Run a patient through the enrollment flow.")
   .argument("<patientFile>", "path to a patient JSON file")
-  .option("--submit", "perform the irreversible final Submit (default OFF)", false)
+  .option("--submit", "auto-click the final Submit (rejected by reCAPTCHA on Skyrizi)", false)
+  .option(
+    "--handoff",
+    "fill everything (incl. consent), open the browser, and let a human click Submit",
+    false,
+  )
+  .option(
+    "--consent",
+    "patient consent obtained out-of-band; check the required consent box before Submit",
+    false,
+  )
   .option("--headful", "show the browser window", envBool("HAVN_HEADFUL"))
-  .option("--test-email", "override patient email with the test +alias for this run", false)
+  .option("--channel <name>", "browser channel, e.g. 'chrome' for real Chrome")
+  .option("--test-email", "override patient email with the test dot-alias for this run", false)
   .option("-r, --recipe <path>", "recipe YAML", DEFAULT_RECIPE)
   .option("--run-id <id>", "stable id for this run (default: generated)")
   .option("--slowmo <ms>", "slow each action by N ms", (v: string) => parseInt(v, 10))
@@ -128,7 +142,10 @@ program
       patientFile: string,
       opts: {
         submit: boolean;
+        handoff: boolean;
+        consent: boolean;
         headful: boolean;
+        channel?: string;
         testEmail: boolean;
         recipe: string;
         runId?: string;
@@ -146,7 +163,10 @@ program
         recipePath: opts.recipe,
         patient,
         submit: opts.submit,
+        handoff: opts.handoff,
+        consentObtained: opts.consent,
         headful: opts.headful,
+        ...(opts.channel ? { channel: opts.channel } : {}),
         ...(opts.slowmo != null ? { slowMo: opts.slowmo } : {}),
         artifactDir: opts.artifactDir,
         runId,

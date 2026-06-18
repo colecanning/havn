@@ -171,9 +171,12 @@ steps:
            auto-check it (it is a patient decision).
         2. The step is protected by invisible reCAPTCHA Enterprise (anti-bot).
       `marketingnews` (optional) is SMS marketing consent — left unchecked.
-      So v1 fills through here and STOPS (ready_to_submit); a human gives consent, clears
-      the CAPTCHA, and clicks Submit. No fields are auto-filled on this step.
+      With --consent (patient consent obtained out-of-band) the runner checks
+      `marketingnews1` before Submit; the invisible reCAPTCHA may still gate submission.
     fields: []
+    consent_checkboxes:
+      - name: marketingnews1
+        label: "consent to the collection, use, and disclosure of my health-related personal data"
     advance:
       button: "Submit"
       irreversible: true

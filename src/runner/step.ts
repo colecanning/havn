@@ -78,6 +78,40 @@ export async function fillStep(
   return { status: "ok" };
 }
 
+/**
+ * Check the step's required consent checkbox(es). Only called when consent has been
+ * obtained from the patient out-of-band. Returns false if a box can't be confirmed
+ * checked (the runner then halts rather than submitting without recorded consent).
+ */
+export async function applyConsent(
+  page: Page,
+  step: StepSpec,
+  logger: Logger,
+): Promise<boolean> {
+  for (const box of step.consent_checkboxes ?? []) {
+    const loc = page
+      .locator(`input[type="checkbox"][name=${JSON.stringify(box.name)}]`)
+      .filter({ visible: true })
+      .first();
+    try {
+      if (!(await loc.isChecked())) {
+        await loc.scrollIntoViewIfNeeded().catch(() => {});
+        await loc.check({ timeout: 8000 }).catch(async () => {
+          await loc.click({ timeout: 8000 }); // custom checkbox: click the control/label
+        });
+        await loc.dispatchEvent("change").catch(() => {});
+      }
+      const checked = await loc.isChecked().catch(() => false);
+      logger.info("consent.checked", { name: box.name, checked });
+      if (!checked) return false;
+    } catch (err) {
+      logger.warn("consent.failed", { name: box.name, detail: (err as Error).message });
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Click a step's advance button (visible). */
 export async function clickAdvance(page: Page, step: StepSpec): Promise<void> {
   if (!step.advance) return;

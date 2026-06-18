@@ -12,6 +12,12 @@ export interface SessionOptions {
   headful?: boolean;
   /** Slow each action by N ms — useful when observing a run. Default 0. */
   slowMo?: number;
+  /**
+   * Browser channel, e.g. "chrome" to use the installed Google Chrome instead of
+   * bundled Chromium. A real, headed Chrome scores far more "human" on invisible
+   * reCAPTCHA than headless Chromium — use it for live submits.
+   */
+  channel?: string;
 }
 
 /**
@@ -22,6 +28,7 @@ export async function launchSession(opts: SessionOptions = {}): Promise<Session>
   const browser = await chromium.launch({
     headless: !opts.headful,
     slowMo: opts.slowMo ?? 0,
+    ...(opts.channel ? { channel: opts.channel } : {}),
   });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },

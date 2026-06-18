@@ -82,23 +82,32 @@ These are why the runner looks the way it does — keep them in mind before "sim
 Account → Treatment → Profile → Savings → Confirm. Field-by-field detail lives in
 `recipes/skyrizi.yaml`; a human walkthrough is in `docs/enrollment-flow.md`.
 
-## The Submit wall (why v1 stops at Confirm) — confirmed empirically
+## The Submit wall — confirmed empirically; use handoff mode
 
-The final Submit **cannot be fully automated**, by the site's design:
+The Confirm step has two gates:
 
-1. The Confirm step has a **required consent checkbox** (`marketingnews1`): "I consent
-   to the collection, use, and disclosure of my health-related personal data … for
-   online targeted advertising…". This is the **deferred consent/authorization** — the
-   runner does NOT auto-check it; it's a patient decision.
-2. The step is protected by **invisible reCAPTCHA Enterprise** (anti-bot).
+1. A **required consent checkbox** (`marketingnews1`): "I consent to the collection,
+   use, and disclosure of my health-related personal data … for online targeted
+   advertising…". This is the program consent/authorization. The runner checks it ONLY
+   when `consentObtained` is set (`--consent`) — i.e. consent was obtained from the
+   patient out-of-band. Never check it otherwise.
+2. **Invisible reCAPTCHA Enterprise.** This is the hard blocker. We confirmed by testing
+   that the submit POST is rejected server-side with HTTP 400
+   `CaptchaValidationException: "The CAPTCHA validation failed"`. Headless Chromium AND
+   headed real Chrome under Playwright are both rejected (CDP automation is detected).
 
-So `--submit` will fill everything, click Submit, and then fail to reach the success
-URL (returning `error`). That earlier test created **no enrollment** — the form stays
-put. The intended v1 behavior is the default: fill through Confirm, stop, and hand off
-to a human who gives consent, clears the CAPTCHA, and submits. The `onBeforeSubmit`
-hook + the wired `--submit` path remain for a future where consent is captured and
-submission happens in an allowed context. Do not try to defeat the CAPTCHA or
-auto-accept the health-data consent.
+**Do not try to defeat the reCAPTCHA** (no token-relay / CAPTCHA-solving services — that
+is anti-bot circumvention). The legitimate paths:
+
+- **`handoff` mode (`--handoff`, implemented):** the agent fills everything, checks
+  consent (with `--consent`), opens a visible browser, and **waits for a human to click
+  Submit** — the human passes the invisible reCAPTCHA naturally. On the success redirect
+  it captures confirmation. This is the intended way to actually complete enrollments.
+- **Official enrollment API / partnership** with AbbVie's co-pay hub — the durable answer
+  at scale (out of scope for code here).
+
+`--submit` (auto-click) remains wired but will be rejected by reCAPTCHA on this form; it
+returns `error` and creates no enrollment.
 
 ## Re-mapping when the form changes
 
