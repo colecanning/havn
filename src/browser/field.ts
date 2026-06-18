@@ -1,6 +1,7 @@
 import type { Locator, Page } from "playwright";
 import type { FieldSpec, InteractionSpec } from "../recipe/schema.js";
 import type { Logger } from "../logging/logger.js";
+import { humanType } from "./human.js";
 
 /**
  * Field interaction, tuned to the live AbbVie form (an AEM Adaptive Form).
@@ -81,27 +82,33 @@ async function fillText(
   field: FieldSpec,
   value: string,
   interaction: InteractionSpec,
+  humanize: boolean,
 ): Promise<FillOutcome> {
   const loc = baseLocator(page, field).first();
+  const method = humanize ? "humanType" : "type";
   try {
-    await loc.scrollIntoViewIfNeeded().catch(() => {});
-    await loc.click({ timeout: ACTION_TIMEOUT });
-    await loc.press("ControlOrMeta+a").catch(() => {});
-    await loc.press("Delete").catch(() => {});
-    await loc.pressSequentially(value, { delay: 28, timeout: ACTION_TIMEOUT });
+    if (humanize) {
+      await humanType(page, loc, value);
+    } else {
+      await loc.scrollIntoViewIfNeeded().catch(() => {});
+      await loc.click({ timeout: ACTION_TIMEOUT });
+      await loc.press("ControlOrMeta+a").catch(() => {});
+      await loc.press("Delete").catch(() => {});
+      await loc.pressSequentially(value, { delay: 28, timeout: ACTION_TIMEOUT });
+    }
     for (const ev of interaction.events) {
       if (ev === "blur") continue;
       await loc.dispatchEvent(ev).catch(() => {});
     }
     await loc.blur().catch(() => {});
   } catch (err) {
-    return { accepted: false, method: "type", detail: (err as Error).message };
+    return { accepted: false, method, detail: (err as Error).message };
   }
   await page.waitForTimeout(150);
   const accepted = !interaction.verify_field_state || (await isAccepted(loc));
   return accepted
-    ? { accepted: true, method: "type" }
-    : { accepted: false, method: "type", detail: "field rejected (aria-invalid)" };
+    ? { accepted: true, method }
+    : { accepted: false, method, detail: "field rejected (aria-invalid)" };
 }
 
 async function fillSelect(page: Page, field: FieldSpec, value: string): Promise<FillOutcome> {
@@ -148,11 +155,12 @@ export async function fillField(
   value: string,
   interaction: InteractionSpec,
   logger: Logger,
+  humanize = false,
 ): Promise<FillOutcome> {
   let outcome: FillOutcome;
   if (field.type === "radio") outcome = await fillRadio(page, field, value);
   else if (field.type === "select") outcome = await fillSelect(page, field, value);
-  else outcome = await fillText(page, field, value, interaction);
+  else outcome = await fillText(page, field, value, interaction, humanize);
 
   logger.debug("field.fill", { key: field.key, method: outcome.method, accepted: outcome.accepted });
   return outcome;

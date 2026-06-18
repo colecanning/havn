@@ -46,10 +46,12 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
     return { status: "needs_info", needs };
   }
 
+  const humanize = opts.humanize ?? true;
   const session = await launchSession({
     headful: opts.headful || opts.handoff, // handoff needs a visible window for the human
     slowMo: opts.slowMo,
     ...(opts.channel ? { channel: opts.channel } : {}),
+    ...(opts.userDataDir ? { userDataDir: opts.userDataDir } : {}),
   });
   try {
     const { page } = session;
@@ -79,7 +81,7 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
         }
       }
 
-      const fill = await fillStep(page, step, opts.patient, recipe.interaction, logger);
+      const fill = await fillStep(page, step, opts.patient, recipe.interaction, logger, humanize);
       if (fill.status === "page_mismatch") {
         return { status: "page_mismatch", step: step.id, missingLabels: fill.missing };
       }

@@ -9,6 +9,7 @@ import { loadRecipe } from "./recipe/load.js";
 import { testEmail } from "./patient/testEmail.js";
 import { makeRunId } from "./util/runId.js";
 import { mapForm } from "./mapper/map.js";
+import { launchSession } from "./browser/session.js";
 import type { EnrollResult } from "./core/types.js";
 
 const DEFAULT_RECIPE = "recipes/skyrizi.yaml";
@@ -132,6 +133,8 @@ program
   )
   .option("--headful", "show the browser window", envBool("HAVN_HEADFUL"))
   .option("--channel <name>", "browser channel, e.g. 'chrome' for real Chrome")
+  .option("--user-data-dir <path>", "reuse a persistent (warmed) browser profile dir")
+  .option("--no-human", "disable human-like slow typing/scrolling/pauses (much faster)")
   .option("--test-email", "override patient email with the test dot-alias for this run", false)
   .option("-r, --recipe <path>", "recipe YAML", DEFAULT_RECIPE)
   .option("--run-id <id>", "stable id for this run (default: generated)")
@@ -146,6 +149,8 @@ program
         consent: boolean;
         headful: boolean;
         channel?: string;
+        userDataDir?: string;
+        human: boolean;
         testEmail: boolean;
         recipe: string;
         runId?: string;
@@ -166,7 +171,9 @@ program
         handoff: opts.handoff,
         consentObtained: opts.consent,
         headful: opts.headful,
+        humanize: opts.human,
         ...(opts.channel ? { channel: opts.channel } : {}),
+        ...(opts.userDataDir ? { userDataDir: opts.userDataDir } : {}),
         ...(opts.slowmo != null ? { slowMo: opts.slowmo } : {}),
         artifactDir: opts.artifactDir,
         runId,
@@ -202,6 +209,34 @@ program
       }
     },
   );
+
+program
+  .command("warm")
+  .description(
+    "Open a persistent Chrome profile so you can sign into Google + browse to build " +
+      "reputation. Reuse the same --user-data-dir for enroll. Closes when you close Chrome.",
+  )
+  .requiredOption("--user-data-dir <path>", "profile directory to warm (reuse for enroll)")
+  .option("--channel <name>", "browser channel", "chrome")
+  .action(async (opts: { userDataDir: string; channel: string }) => {
+    const session = await launchSession({
+      headful: true,
+      channel: opts.channel,
+      userDataDir: opts.userDataDir,
+    });
+    await session.page.goto("https://www.google.com").catch(() => {});
+    console.log(
+      `Warming profile at ${opts.userDataDir}.\n` +
+        "  - Sign into a Google account and browse normally for a while (the more, the better).\n" +
+        "  - Then close the Chrome window. Reuse this dir: enroll --user-data-dir " +
+        `${opts.userDataDir} --channel ${opts.channel} --headful`,
+    );
+    await new Promise<void>((resolve) => {
+      session.context.on("close", () => resolve());
+      setTimeout(resolve, 60 * 60 * 1000); // safety cap: 1h
+    });
+    await session.close();
+  });
 
 program.parseAsync().catch((err: Error) => {
   console.error(`Fatal: ${err.message}`);

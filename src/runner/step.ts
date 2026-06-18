@@ -4,6 +4,7 @@ import type { FieldSpec, InteractionSpec, StepSpec } from "../recipe/schema.js";
 import type { Logger } from "../logging/logger.js";
 import { guardStep } from "../browser/guard.js";
 import { fillField, fieldVisible, waitFieldVisible } from "../browser/field.js";
+import { humanMouse, humanPause, humanScroll, randomBetween } from "../browser/human.js";
 import { getByPath } from "../util/path.js";
 
 export type FillStepResult =
@@ -31,6 +32,7 @@ export async function fillStep(
   patient: Patient,
   interaction: InteractionSpec,
   logger: Logger,
+  humanize = false,
 ): Promise<FillStepResult> {
   const guard = await guardStep(page, step);
   if (!guard.ok) {
@@ -38,6 +40,10 @@ export async function fillStep(
     return { status: "page_mismatch", missing: guard.missing };
   }
 
+  // Read the step over before touching it.
+  if (humanize) await humanScroll(page).catch(() => {});
+
+  let filledAny = false;
   for (const field of step.fields) {
     const raw = getByPath(patient, field.key);
     const hasValue = !isEmpty(raw);
@@ -63,7 +69,10 @@ export async function fillStep(
       continue; // optional + no value provided
     }
 
-    const outcome = await fillField(page, field, formatValue(field, raw), interaction, logger);
+    // A beat between fields, like a person moving down the form.
+    if (humanize && filledAny) await page.waitForTimeout(randomBetween(1000, 3000));
+
+    const outcome = await fillField(page, field, formatValue(field, raw), interaction, logger, humanize);
     if (!outcome.accepted) {
       logger.warn("step.field_rejected", { step: step.id, key: field.key, method: outcome.method });
       return {
@@ -72,6 +81,7 @@ export async function fillStep(
         ...(outcome.detail ? { detail: outcome.detail } : {}),
       };
     }
+    filledAny = true;
   }
 
   logger.info("step.filled", { step: step.id, fieldCount: step.fields.length });
@@ -112,7 +122,7 @@ export async function applyConsent(
   return true;
 }
 
-/** Click a step's advance button (visible). */
+/** Click a step's advance button (visible), with a little human-like lead-in. */
 export async function clickAdvance(page: Page, step: StepSpec): Promise<void> {
   if (!step.advance) return;
   const button = page
@@ -121,6 +131,8 @@ export async function clickAdvance(page: Page, step: StepSpec): Promise<void> {
     .first();
   try {
     await button.scrollIntoViewIfNeeded().catch(() => {});
+    await humanMouse(page).catch(() => {});
+    await humanPause(page).catch(() => {});
     await button.click({ timeout: 8000 });
   } catch {
     await page

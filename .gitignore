@@ -20,6 +20,10 @@ artifacts/
 # Throwaway exploration scripts used while mapping the live form
 scratch/
 
+# Persistent (warmed) browser profiles — contain cookies/history, never commit
+.chrome-profile/
+profiles/
+
 # Playwright
 /test-results/
 /playwright-report/

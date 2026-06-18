@@ -68,6 +68,14 @@ export interface EnrollOptions {
   headful?: boolean;
   /** Browser channel, e.g. "chrome" for real Chrome (better invisible-reCAPTCHA score). */
   channel?: string;
+  /** Reuse a persistent (warmed) browser profile directory across runs. */
+  userDataDir?: string;
+  /**
+   * Human-like behavior: slow uneven typing with occasional typos+corrections, slow
+   * scrolling, and 1–3s pauses between fields. Raises the reCAPTCHA score (and run
+   * time). Default true for the runner.
+   */
+  humanize?: boolean;
   /** Slow each Playwright action by N ms (observation aid). Default 0. */
   slowMo?: number;
   /** Directory for screenshots/confirmation records. Default "artifacts". */

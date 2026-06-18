@@ -109,6 +109,33 @@ is anti-bot circumvention). The legitimate paths:
 `--submit` (auto-click) remains wired but will be rejected by reCAPTCHA on this form; it
 returns `error` and creates no enrollment.
 
+### Attempts to pass reCAPTCHA automatically (all failed) — the CDP ceiling
+
+Tested against the live form, every automated submit returned the same
+`CaptchaValidationException` ("The CAPTCHA validation failed"):
+1. headless Chromium — fail
+2. headed real Chrome (`--channel chrome`) — fail
+3. + persistent profile (`--user-data-dir`) + fingerprint mask (`session.ts`
+   FINGERPRINT_MASK), cold profile — fail
+4. + full human-like behavior (`browser/human.ts`: slow uneven typing, random
+   typos+backspace, slow scrolling, 1–3s between fields) — fail
+
+Identical failure regardless of behavioral realism ⇒ the block is **CDP detection**, not
+behavior: Playwright drives Chrome over the DevTools protocol, which reCAPTCHA Enterprise
+detects no matter how human the typing/scrolling looks (and a cold profile has zero Google
+reputation). The human-behavior code is kept (it's correct and makes handoff look natural)
+but it does NOT pass reCAPTCHA.
+
+The only remaining levers:
+- A genuinely **warmed** profile (`havn warm --user-data-dir <dir>` → sign into Google +
+  browse, then reuse). Untested; CDP detection likely still caps it.
+- **Real OS-level input into a real browser (NO CDP)** — computer-use / a browser
+  extension. This removes the CDP signal entirely and is the stronger path for full
+  automation.
+- The durable, compliant answer: an **official enrollment API/partnership**.
+
+Do NOT add CAPTCHA-solving/token-relay services.
+
 ## Re-mapping when the form changes
 
 1. Set the changed step's `mapped: false` (or stub its fields) in the recipe.
