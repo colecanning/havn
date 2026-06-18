@@ -4,6 +4,11 @@
   "last_name": "Patient",
   "email": "placeholder@example.com",
   "date_of_birth": "1985-04-12",
+  "sex": "male",
+  "treatment": {
+    "started": "no",
+    "upcoming_date": "12/15/2026"
+  },
   "address": {
     "line1": "123 Example Street",
     "line2": "Apt 4",

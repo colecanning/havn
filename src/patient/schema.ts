@@ -29,6 +29,12 @@ export const InsuranceType = z.enum([
 ]);
 export type InsuranceType = z.infer<typeof InsuranceType>;
 
+export const Sex = z.enum(["male", "female"]);
+export type Sex = z.infer<typeof Sex>;
+
+export const TreatmentStarted = z.enum(["yes", "no", "unsure"]);
+export type TreatmentStarted = z.infer<typeof TreatmentStarted>;
+
 const isoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "date_of_birth must be ISO format YYYY-MM-DD");
@@ -55,8 +61,11 @@ export const Patient = z
     last_name: z.string().min(1).optional(),
     email: z.string().email().optional(),
 
-    // Step 3 — Profile (inferred; confirm via mapping)
+    // Step 3 — Profile (confirmed via mapping)
     date_of_birth: isoDate.optional(),
+    sex: Sex.optional(),
+    /** Optional on the form; left unset if not provided. */
+    gender_identity: z.string().optional(),
     address: Address.optional(),
     phone: z
       .string()
@@ -66,9 +75,17 @@ export const Patient = z
     // Step 4 — Savings (eligibility gate)
     insurance_type: InsuranceType.optional(),
 
-    // Step 2 — Treatment (TBD until mapped). Passthrough so callers can supply
-    // values before the schema is tightened; runner only uses keys the recipe names.
-    treatment: z.record(z.string(), z.unknown()).optional(),
+    // Step 2 — Treatment. `started` drives conditional fields:
+    //   no    -> upcoming_date required
+    //   yes   -> recent treatment date/type (not modeled in v1)
+    treatment: z
+      .object({
+        started: TreatmentStarted.optional(),
+        /** MM/DD/YYYY upcoming treatment date (when started = "no"). */
+        upcoming_date: z.string().optional(),
+      })
+      .partial()
+      .optional(),
   })
   .strict();
 export type Patient = z.infer<typeof Patient>;

@@ -69,6 +69,8 @@ function dummyPatient(runId: string, emailBase: string): Patient {
     last_name: "Mapper",
     email: testEmail(`${runId}-map`, emailBase),
     date_of_birth: "1985-04-12",
+    sex: "male",
+    treatment: { started: "no", upcoming_date: "12/15/2026" },
     address: { line1: "123 Test Street", city: "Columbus", state: "OH", zip: "43215" },
     phone: "6145551234",
     insurance_type: "commercial",

@@ -17,6 +17,9 @@ artifacts/
 .DS_Store
 *.log
 
+# Throwaway exploration scripts used while mapping the live form
+scratch/
+
 # Playwright
 /test-results/
 /playwright-report/

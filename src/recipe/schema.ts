@@ -26,23 +26,38 @@ export const FieldSpec = z
     /** Dotted path into the patient record, e.g. "first_name" or "address.line1". */
     key: z.string().min(1),
     type: FieldType,
-    /** Stable visible label text used to locate the field. Never a CSS selector. */
+    /**
+     * Primary locator for text/select fields: the input's `name` attribute. On this
+     * form the text-input names are clean and stable (e.g. "AccfirstName"), while CSS
+     * classes and ids are auto-generated. Radios use auto-generated names, so they are
+     * located by visible label text instead (see label_map).
+     */
+    name: z.string().min(1).optional(),
+    /** Stable visible label text — used to locate text fields (fallback) and to guard. */
     label: z.string().min(1).optional(),
     /**
-     * For radio/select: maps a patient enum value to the visible option text to
-     * click/choose. e.g. { plaque_psoriasis: "I am diagnosed with ... Plaque Psoriasis" }.
+     * For radio: maps a patient enum value to the visible option text to click.
+     * For select: optional — maps a patient value to the <option> label; when omitted
+     * the patient value is used directly as the option value (e.g. state "OH").
      */
     label_map: z.record(z.string(), z.string()).optional(),
     required: z.boolean().default(true),
+    /**
+     * True when this field is revealed only after another field is set (e.g. the
+     * mailing address appears after choosing commercial insurance). The page-match
+     * guard skips conditional fields for initial presence, but collectNeeds still
+     * enforces required-ness so the data is gathered up front.
+     */
+    conditional: z.boolean().default(false),
     /** Free-form note captured during mapping (validation quirks, formatting, etc.). */
     notes: z.string().optional(),
   })
   .strict()
-  .refine((f) => (f.type === "radio" || f.type === "select" ? !!f.label_map : true), {
-    message: "radio/select fields must define a label_map",
+  .refine((f) => (f.type === "radio" ? !!f.label_map : true), {
+    message: "radio fields must define a label_map",
   })
-  .refine((f) => (f.type === "radio" ? true : !!f.label), {
-    message: "non-radio fields must define a label",
+  .refine((f) => (f.type === "radio" ? true : !!(f.name || f.label)), {
+    message: "non-radio fields must define a name or a label",
   });
 export type FieldSpec = z.infer<typeof FieldSpec>;
 
@@ -62,6 +77,13 @@ export const StepSpec = z
     title: z.string().optional(),
     /** False until this step has been mapped against the live form. */
     mapped: z.boolean().default(false),
+    /**
+     * A unique visible phrase that is present while this step is active and gone on
+     * the next step. The runner waits for it to disappear to confirm a real advance
+     * (the form silently keeps you on the step when a field is rejected). Avoid generic
+     * words — they substring-match the page's safety text.
+     */
+    signature: z.string().optional(),
     fields: z.array(FieldSpec).default([]),
     advance: AdvanceSpec.optional(),
     notes: z.string().optional(),

@@ -3,7 +3,7 @@ import type { Patient } from "../patient/schema.js";
 import type { FieldSpec, InteractionSpec, StepSpec } from "../recipe/schema.js";
 import type { Logger } from "../logging/logger.js";
 import { guardStep } from "../browser/guard.js";
-import { fillField } from "../browser/field.js";
+import { fillField, fieldVisible, waitFieldVisible } from "../browser/field.js";
 import { getByPath } from "../util/path.js";
 
 export type FillStepResult =
@@ -11,21 +11,11 @@ export type FillStepResult =
   | { status: "page_mismatch"; missing: string[] }
   | { status: "validation_failed"; fieldKey: string; detail?: string };
 
-function isChoice(field: FieldSpec): boolean {
-  return field.type === "radio" || field.type === "select" || field.type === "checkbox";
-}
-
 /** Resolve a patient value to the string the field expects. */
 function formatValue(field: FieldSpec, raw: unknown): string {
-  if (isChoice(field)) return String(raw); // enum key; fillField maps it via label_map
-  if (
-    field.type === "date" &&
-    typeof raw === "string" &&
-    /^\d{4}-\d{2}-\d{2}$/.test(raw)
-  ) {
-    // US forms commonly use MM/DD/YYYY — confirm exact format during mapping.
+  if (field.type === "date" && typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
     const [y, m, d] = raw.split("-");
-    return `${m}/${d}/${y}`;
+    return `${m}/${d}/${y}`; // form uses MM/DD/YYYY
   }
   return String(raw);
 }
@@ -34,7 +24,7 @@ function isEmpty(raw: unknown): boolean {
   return raw === undefined || raw === null || raw === "";
 }
 
-/** Guard the step against the recipe, then fill every field and verify acceptance. */
+/** Guard the step against the recipe, then fill every applicable field. */
 export async function fillStep(
   page: Page,
   step: StepSpec,
@@ -50,22 +40,37 @@ export async function fillStep(
 
   for (const field of step.fields) {
     const raw = getByPath(patient, field.key);
-    if (isEmpty(raw)) {
+    const hasValue = !isEmpty(raw);
+
+    // A field the patient wants to fill may be a conditional one that renders only
+    // after a prior choice — give it a moment to appear before deciding to skip.
+    let present = await fieldVisible(page, field);
+    if (!present && hasValue) present = await waitFieldVisible(page, field, 3000);
+
+    if (!present) {
+      // Required-but-missing was already caught by the guard; an optional field that
+      // isn't shown is a conditional one that doesn't apply to this patient — skip.
       if (field.required) {
-        // collectNeeds should have caught this pre-run; halt rather than partial-fill.
-        return {
-          status: "validation_failed",
-          fieldKey: field.key,
-          detail: "required value missing at runtime",
-        };
+        return { status: "page_mismatch", missing: [field.label ?? field.name ?? field.key] };
       }
-      continue; // optional + absent
+      continue;
+    }
+
+    if (!hasValue) {
+      if (field.required) {
+        return { status: "validation_failed", fieldKey: field.key, detail: "required value missing" };
+      }
+      continue; // optional + no value provided
     }
 
     const outcome = await fillField(page, field, formatValue(field, raw), interaction, logger);
     if (!outcome.accepted) {
       logger.warn("step.field_rejected", { step: step.id, key: field.key, method: outcome.method });
-      return { status: "validation_failed", fieldKey: field.key, detail: outcome.detail };
+      return {
+        status: "validation_failed",
+        fieldKey: field.key,
+        ...(outcome.detail ? { detail: outcome.detail } : {}),
+      };
     }
   }
 
@@ -73,16 +78,48 @@ export async function fillStep(
   return { status: "ok" };
 }
 
-/** Click the step's advance button (Continue / Submit). */
-export async function advanceStep(page: Page, step: StepSpec, logger: Logger): Promise<void> {
+/** Click a step's advance button (visible). */
+export async function clickAdvance(page: Page, step: StepSpec): Promise<void> {
   if (!step.advance) return;
-  const button = page.getByRole("button", { name: step.advance.button, exact: false }).first();
+  const button = page
+    .getByRole("button", { name: step.advance.button, exact: true })
+    .filter({ visible: true })
+    .first();
   try {
     await button.scrollIntoViewIfNeeded().catch(() => {});
     await button.click({ timeout: 8000 });
   } catch {
-    // Some SPAs render advance controls as links/divs, not <button>.
-    await page.getByText(step.advance.button, { exact: false }).first().click({ timeout: 8000 });
+    await page
+      .getByText(step.advance.button, { exact: true })
+      .filter({ visible: true })
+      .first()
+      .click({ timeout: 8000 });
   }
-  logger.info("step.advanced", { step: step.id, button: step.advance.button });
+}
+
+/**
+ * Advance an intermediate step and verify the transition. Because the validator
+ * silently keeps you on the same step when a field is rejected, "advanced" is the
+ * true acceptance signal: the step's unique signature phrase is no longer visible
+ * (falling back to the first field's control disappearing if no signature is set).
+ */
+export async function advanceStep(page: Page, step: StepSpec, logger: Logger): Promise<boolean> {
+  const fallback = step.fields.find((f) => f.required) ?? step.fields[0];
+  await clickAdvance(page, step);
+
+  const deadline = Date.now() + 12000;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(300);
+    const stillOnStep = step.signature
+      ? (await page.getByText(step.signature, { exact: false }).filter({ visible: true }).count()) > 0
+      : fallback
+        ? await fieldVisible(page, fallback)
+        : false;
+    if (!stillOnStep) {
+      logger.info("step.advanced", { step: step.id });
+      return true;
+    }
+  }
+  logger.warn("step.did_not_advance", { step: step.id });
+  return false;
 }

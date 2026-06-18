@@ -13,6 +13,17 @@ const base = {
   email: "pat@example.com",
 } as const;
 
+// A patient with every recipe-required field present (across all mapped steps).
+const complete = {
+  ...base,
+  date_of_birth: "1985-04-12",
+  sex: "male",
+  phone: "6145551234",
+  insurance_type: "commercial",
+  treatment: { started: "no", upcoming_date: "12/15/2026" },
+  address: { line1: "123 Example St", city: "Columbus", state: "OH", zip: "43215" },
+} as const;
+
 describe("patient schema", () => {
   it("accepts a minimal valid Step-1 patient", () => {
     expect(() => parsePatient(base)).not.toThrow();
@@ -29,12 +40,12 @@ describe("patient schema", () => {
 
 describe("missing-info needs list", () => {
   it("returns no needs when all required (mapped) fields are present", () => {
-    const needs = collectNeeds(parsePatient(base), recipe);
+    const needs = collectNeeds(parsePatient(complete), recipe);
     expect(needs).toEqual([]);
   });
 
   it("flags a missing required field with its step", () => {
-    const { email, ...withoutEmail } = base;
+    const { email, ...withoutEmail } = complete;
     const needs = collectNeeds(parsePatient(withoutEmail), recipe);
     expect(needs).toContainEqual({
       key: "email",
@@ -43,12 +54,28 @@ describe("missing-info needs list", () => {
       reason: "missing",
     });
   });
+
+  it("does not flag optional conditional fields (e.g. address.line2)", () => {
+    const needs = collectNeeds(parsePatient(complete), recipe);
+    expect(needs.find((n) => n.key === "address.line2")).toBeUndefined();
+  });
 });
 
-describe("test email aliasing", () => {
-  it("injects the run id as a +alias", () => {
-    expect(testEmail("skyrizi-123", "ccanning10@gmail.com")).toBe(
-      "ccanning10+skyrizi-123@gmail.com",
-    );
+describe("test email (Gmail dot trick — the form rejects '+')", () => {
+  it("routes to the same mailbox using dots only, never '+'", () => {
+    const e = testEmail("skyrizi-123", "ccanning10@gmail.com");
+    expect(e).not.toContain("+");
+    expect(e.endsWith("@gmail.com")).toBe(true);
+    // Removing dots recovers the canonical mailbox.
+    expect(e.split("@")[0]!.replace(/\./g, "")).toBe("ccanning10");
+  });
+
+  it("is deterministic per run id", () => {
+    expect(testEmail("run-A")).toBe(testEmail("run-A"));
+  });
+
+  it("produces multiple distinct addresses across run ids", () => {
+    const set = new Set(Array.from({ length: 10 }, (_, i) => testEmail(`run-${i}`)));
+    expect(set.size).toBeGreaterThan(1);
   });
 });

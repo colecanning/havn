@@ -5,7 +5,7 @@ import { collectNeeds } from "../patient/validate.js";
 import { createLogger } from "../logging/logger.js";
 import { launchSession } from "../browser/session.js";
 import { runPreflight } from "../browser/preflight.js";
-import { fillStep, advanceStep } from "../runner/step.js";
+import { fillStep, advanceStep, clickAdvance } from "../runner/step.js";
 import { checkEligibility } from "../runner/eligibility.js";
 import { captureReady, captureConfirmation } from "../runner/confirm.js";
 import { makeRunId } from "../util/runId.js";
@@ -96,7 +96,7 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
         // Consent/authorization gate — deferred (no-op) placeholder in v1.
         if (opts.onBeforeSubmit) await opts.onBeforeSubmit({ runId, patient: opts.patient });
         logger.info("enroll.submitting", { step: step.id });
-        await advanceStep(page, step, logger);
+        await clickAdvance(page, step);
         try {
           await page.waitForURL((url) => url.toString().includes(recipe.success_signal.match), {
             timeout: SUBMIT_REDIRECT_TIMEOUT,
@@ -111,7 +111,15 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
         return { status: "submitted", confirmation };
       }
 
-      await advanceStep(page, step, logger);
+      const advanced = await advanceStep(page, step, logger);
+      if (!advanced) {
+        return {
+          status: "validation_failed",
+          step: step.id,
+          fieldKey: "(advance)",
+          detail: "step did not advance after fill — a field was likely rejected by the form",
+        };
+      }
     }
 
     return { status: "error", message: "Flow ended without reaching an irreversible Submit step." };
