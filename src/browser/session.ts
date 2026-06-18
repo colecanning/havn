@@ -16,6 +16,12 @@ export interface Session {
 export interface SessionOptions {
   /** Visible window (true) vs headless (false, default). */
   headful?: boolean;
+  /**
+   * Use Chrome's "new" headless (`--headless=new`) instead of the old headless shell.
+   * Renders with the full browser engine (no window) and looks far more like real
+   * Chrome to reCAPTCHA. Ignored when headful. Best paired with channel:"chrome".
+   */
+  newHeadless?: boolean;
   /** Slow each action by N ms — useful when observing a run. Default 0. */
   slowMo?: number;
   /**
@@ -64,13 +70,19 @@ const CONTEXT_DEFAULTS = {
  * it uses a fresh isolated context.
  */
 export async function launchSession(opts: SessionOptions = {}): Promise<Session> {
-  const headless = !opts.headful;
+  // Three launch modes: headed window, new headless (full engine, no window), or the
+  // old headless shell (default). reCAPTCHA scores headed/new-headless far better.
+  const mode = opts.headful
+    ? { headless: false }
+    : opts.newHeadless
+      ? { headless: false, args: ["--headless=new"] }
+      : { headless: true };
   const slowMo = opts.slowMo ?? 0;
   const channelOpt = opts.channel ? { channel: opts.channel } : {};
 
   if (opts.userDataDir) {
     const context = await chromium.launchPersistentContext(opts.userDataDir, {
-      headless,
+      ...mode,
       slowMo,
       ...channelOpt,
       ...CONTEXT_DEFAULTS,
@@ -86,7 +98,7 @@ export async function launchSession(opts: SessionOptions = {}): Promise<Session>
     };
   }
 
-  const browser = await chromium.launch({ headless, slowMo, ...channelOpt });
+  const browser = await chromium.launch({ ...mode, slowMo, ...channelOpt });
   const context = await browser.newContext(CONTEXT_DEFAULTS);
   await context.addInitScript(FINGERPRINT_MASK);
   const page = await context.newPage();

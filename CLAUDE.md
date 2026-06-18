@@ -109,10 +109,13 @@ Chrome, headed; default human-like typing on). Earlier single-click attempts fai
 because they never retried — the "CDP detection" theory was **wrong**. We did not need
 nut.js / OS-input / a no-CDP driver.
 
-Caveats / not yet verified: headless (no display) may score worse on reCAPTCHA — the
-verified path is headed real Chrome (on a server, use a virtual display like xvfb).
-IP reputation still matters (residential best). `--handoff` remains as a fallback (human
-clicks Submit). **Never** add CAPTCHA-solving/token-relay services.
+**Headless does NOT work** (tested): both old headless and Chrome "new" headless
+(`--headless-new`) fill the form fine but the Submit is rejected by reCAPTCHA every time
+(5/5 retries) — reCAPTCHA scores headless as bot. **A genuinely headed browser with a
+display is required.** For a server, run headed Chrome under a **virtual display (xvfb)**
+on Linux; on macOS you need a real logged-in GUI session. IP reputation still matters
+(residential best). `--handoff` remains a fallback (human clicks Submit). **Never** add
+CAPTCHA-solving/token-relay services.
 
 ### History (for context)
 Before the timing quirk was understood, we tried headless, headed real Chrome, a

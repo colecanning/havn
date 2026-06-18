@@ -55,6 +55,7 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
   try {
     driver = makeDriver(driverName, {
       headful: !!(opts.headful || opts.handoff), // handoff needs a visible window
+      ...(opts.newHeadless ? { newHeadless: true } : {}),
       slowMo: opts.slowMo,
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.userDataDir ? { userDataDir: opts.userDataDir } : {}),

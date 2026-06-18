@@ -133,6 +133,7 @@ program
     false,
   )
   .option("--headful", "show the browser window", envBool("HAVN_HEADFUL"))
+  .option("--headless-new", "use Chrome 'new' headless (no window, full engine)", false)
   .option("--channel <name>", "browser channel, e.g. 'chrome' for real Chrome")
   .option("--user-data-dir <path>", "reuse a persistent (warmed) browser profile dir")
   .option("--no-human", "disable human-like slow typing/scrolling/pauses (much faster)")
@@ -150,6 +151,7 @@ program
         handoff: boolean;
         consent: boolean;
         headful: boolean;
+        headlessNew: boolean;
         channel?: string;
         userDataDir?: string;
         human: boolean;
@@ -174,6 +176,7 @@ program
         handoff: opts.handoff,
         consentObtained: opts.consent,
         headful: opts.headful,
+        newHeadless: opts.headlessNew,
         humanize: opts.human,
         ...(opts.channel ? { channel: opts.channel } : {}),
         ...(opts.userDataDir ? { userDataDir: opts.userDataDir } : {}),

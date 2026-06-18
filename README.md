@@ -89,6 +89,9 @@ docs/enrollment-flow.md  human walkthrough
   on real Chrome, headed. `--handoff` (human click) remains as a fallback. No
   CAPTCHA-solving services are used; for scale, an official enrollment API is still the
   most durable path.
+- **Submit requires a headed browser.** Headless (old and Chrome `--headless-new`) fills
+  fine but reCAPTCHA rejects the Submit. Run headed (`--headful`); on a Linux server use a
+  virtual display (xvfb) so Chrome is genuinely headed without a monitor.
 - The `--driver os` (no-CDP) backend was scaffolded but proved **unnecessary** — the
   retry fixed full automation on the default `playwright` driver. The driver abstraction
   remains for future backends.

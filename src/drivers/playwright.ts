@@ -29,6 +29,7 @@ export class PlaywrightDriver implements EnrollDriver {
   async open(recipe: Recipe): Promise<void> {
     this.session = await launchSession({
       headful: this.ctx.headful,
+      ...(this.ctx.newHeadless ? { newHeadless: true } : {}),
       slowMo: this.ctx.slowMo,
       ...(this.ctx.channel ? { channel: this.ctx.channel } : {}),
       ...(this.ctx.userDataDir ? { userDataDir: this.ctx.userDataDir } : {}),

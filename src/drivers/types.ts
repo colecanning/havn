@@ -35,6 +35,7 @@ export interface EnrollDriver {
 /** Everything a driver needs to construct itself (shared across backends). */
 export interface DriverContext {
   headful: boolean;
+  newHeadless?: boolean;
   slowMo?: number;
   channel?: string;
   userDataDir?: string;

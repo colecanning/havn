@@ -81,6 +81,8 @@ export interface EnrollOptions {
   handoff?: boolean;
   /** Show a visible browser window. Default false (headless). */
   headful?: boolean;
+  /** Use Chrome "new" headless (`--headless=new`) — no window, full engine. */
+  newHeadless?: boolean;
   /** Browser channel, e.g. "chrome" for real Chrome (better invisible-reCAPTCHA score). */
   channel?: string;
   /** Reuse a persistent (warmed) browser profile directory across runs. */
