@@ -1,13 +1,12 @@
 import type { EnrollOptions, EnrollResult } from "./types.js";
 import type { Recipe } from "../recipe/schema.js";
+import type { Logger } from "../logging/logger.js";
+import type { EnrollDriver } from "../drivers/types.js";
 import { loadRecipe } from "../recipe/load.js";
 import { collectNeeds } from "../patient/validate.js";
 import { createLogger } from "../logging/logger.js";
-import { launchSession } from "../browser/session.js";
-import { runPreflight } from "../browser/preflight.js";
-import { fillStep, advanceStep, clickAdvance, applyConsent } from "../runner/step.js";
 import { checkEligibility } from "../runner/eligibility.js";
-import { captureReady, captureConfirmation } from "../runner/confirm.js";
+import { makeDriver } from "../drivers/index.js";
 import { makeRunId } from "../util/runId.js";
 
 const SUBMIT_REDIRECT_TIMEOUT = 30_000;
@@ -15,22 +14,25 @@ const SUBMIT_REDIRECT_TIMEOUT = 30_000;
 const HANDOFF_TIMEOUT = 300_000;
 
 /**
- * Run one patient through a recipe's enrollment flow, deterministically.
+ * Run one patient through a recipe's enrollment flow.
  *
- * Order of operations and the guardrails baked in:
+ * This is backend-agnostic: it owns the flow and guardrails and delegates every browser
+ * interaction to an EnrollDriver (chosen by opts.driver). Both drivers consume the same
+ * recipe + patient.
+ *
+ * Order of operations / guardrails:
  *  1. Missing-info check (collectNeeds) — never start a partial submission.
- *  2. Per step: page-match guard -> fill with native events -> verify acceptance.
+ *  2. Per step: page-match guard -> fill -> verify (driver.fillStep).
  *  3. Eligibility gate at the Savings step — commercial only, before advancing.
- *  4. Final Submit is gated by `submit` (default off). When off, capture the
- *     Confirm state and stop. When on, run the (deferred) consent hook, submit,
- *     wait for the success redirect, and capture confirmation artifacts.
+ *  4. Final Submit gated by `submit`/`handoff` (default: stop at Confirm). Consent
+ *     checkbox checked only when consent was obtained out-of-band.
  *
- * The runner never throws past this boundary: every terminal condition is a typed
- * EnrollResult. On any page-structure mismatch it halts rather than guessing.
+ * Never throws past this boundary: every terminal condition is a typed EnrollResult.
  */
 export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
   const runId = opts.runId ?? makeRunId("skyrizi");
   const artifactDir = opts.artifactDir ?? "artifacts";
+  const driverName = opts.driver ?? "playwright";
   const logger = createLogger({ context: { runId } });
 
   let recipe: Recipe;
@@ -46,18 +48,39 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
     return { status: "needs_info", needs };
   }
 
-  const humanize = opts.humanize ?? true;
-  const session = await launchSession({
-    headful: opts.headful || opts.handoff, // handoff needs a visible window for the human
-    slowMo: opts.slowMo,
-    ...(opts.channel ? { channel: opts.channel } : {}),
-    ...(opts.userDataDir ? { userDataDir: opts.userDataDir } : {}),
-  });
+  let driver: EnrollDriver;
   try {
-    const { page } = session;
-    logger.info("enroll.start", { drug: recipe.drug, submit: !!opts.submit });
-    await page.goto(recipe.url, { waitUntil: "domcontentloaded" });
-    await runPreflight(page, recipe.preflight, logger);
+    driver = makeDriver(driverName, {
+      headful: !!(opts.headful || opts.handoff), // handoff needs a visible window
+      slowMo: opts.slowMo,
+      ...(opts.channel ? { channel: opts.channel } : {}),
+      ...(opts.userDataDir ? { userDataDir: opts.userDataDir } : {}),
+      humanize: opts.humanize ?? true,
+      artifactDir,
+      runId,
+      logger,
+    });
+  } catch (err) {
+    return { status: "error", message: (err as Error).message };
+  }
+
+  logger.info("enroll.start", { drug: recipe.drug, submit: !!opts.submit, driver: driverName });
+  return runEnrollment(driver, recipe, opts, runId, logger);
+}
+
+/**
+ * The backend-agnostic flow: open -> per-step guard/fill/eligibility/advance ->
+ * consent/submit/handoff -> confirmation. Exposed for testing with a fake driver.
+ */
+export async function runEnrollment(
+  driver: EnrollDriver,
+  recipe: Recipe,
+  opts: EnrollOptions,
+  runId: string,
+  logger: Logger,
+): Promise<EnrollResult> {
+  try {
+    await driver.open(recipe);
 
     for (const step of recipe.steps) {
       if (!step.mapped) {
@@ -81,7 +104,7 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
         }
       }
 
-      const fill = await fillStep(page, step, opts.patient, recipe.interaction, logger, humanize);
+      const fill = await driver.fillStep(step, opts.patient, recipe.interaction);
       if (fill.status === "page_mismatch") {
         return { status: "page_mismatch", step: step.id, missingLabels: fill.missing };
       }
@@ -96,15 +119,14 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
 
       // Final (irreversible) step handling.
       if (step.advance?.irreversible) {
-        // Default: fill through Confirm and stop. (Neither auto-submit nor handoff.)
+        // Default: fill through Confirm and stop.
         if (!opts.submit && !opts.handoff) {
-          const capture = await captureReady(page, step, artifactDir, runId, logger);
+          const capture = await driver.captureReady(step);
           logger.info("enroll.ready_to_submit", { step: step.id });
           return { status: "ready_to_submit", capture };
         }
 
-        // Required consent checkbox(es): only checked when consent was obtained
-        // out-of-band. Without it, the form (correctly) blocks Submit.
+        // Required consent checkbox(es): only checked when consent was obtained.
         if (step.consent_checkboxes?.length) {
           if (!opts.consentObtained) {
             return {
@@ -115,8 +137,7 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
                   .join(", ")}). Re-run with consent obtained to check it.`,
             };
           }
-          const consented = await applyConsent(page, step, logger);
-          if (!consented) {
+          if (!(await driver.consent(step))) {
             return {
               status: "validation_failed",
               step: step.id,
@@ -129,47 +150,33 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
         // Consent/authorization hook (e.g. audit logging) — runs before Submit.
         if (opts.onBeforeSubmit) await opts.onBeforeSubmit({ runId, patient: opts.patient });
 
-        // Handoff: everything is filled + consent checked; a human clicks Submit in
-        // the open window (passing the invisible reCAPTCHA naturally). We wait for the
-        // success redirect, then capture confirmation.
+        // Handoff: a human clicks Submit in the open window; we await the redirect.
         if (opts.handoff) {
-          const capture = await captureReady(page, step, artifactDir, runId, logger);
+          const capture = await driver.captureReady(step);
           logger.info("enroll.handoff_waiting", { timeoutMs: HANDOFF_TIMEOUT, step: step.id });
-          try {
-            await page.waitForURL((url) => url.toString().includes(recipe.success_signal.match), {
-              timeout: HANDOFF_TIMEOUT,
-            });
-          } catch {
-            logger.warn("enroll.handoff_timeout", { step: step.id });
-            return { status: "ready_to_submit", capture };
+          if (await driver.awaitSuccess(recipe.success_signal.match, HANDOFF_TIMEOUT)) {
+            return { status: "submitted", confirmation: await driver.captureConfirmation() };
           }
-          const confirmation = await captureConfirmation(page, artifactDir, runId, logger);
-          return { status: "submitted", confirmation };
+          logger.warn("enroll.handoff_timeout", { step: step.id });
+          return { status: "ready_to_submit", capture };
         }
 
-        // Auto-submit (will be rejected by reCAPTCHA on protected forms like Skyrizi).
+        // Auto-submit (reCAPTCHA rejects this on protected forms via the playwright driver).
         logger.info("enroll.submitting", { step: step.id, consentObtained: !!opts.consentObtained });
-        await clickAdvance(page, step);
-        try {
-          await page.waitForURL((url) => url.toString().includes(recipe.success_signal.match), {
-            timeout: SUBMIT_REDIRECT_TIMEOUT,
-          });
-        } catch {
+        await driver.submit(step);
+        if (!(await driver.awaitSuccess(recipe.success_signal.match, SUBMIT_REDIRECT_TIMEOUT))) {
           return {
             status: "error",
             message:
               `Submit did not reach the success signal (${recipe.success_signal.match}). ` +
-              `This form is protected by invisible reCAPTCHA Enterprise, which rejects ` +
-              `automated submits server-side ("CAPTCHA validation failed"). Use handoff ` +
-              `mode so a human performs the final Submit.`,
+              `On the playwright (CDP) driver this is reCAPTCHA rejecting the automated ` +
+              `submit ("CAPTCHA validation failed"); use the os driver or handoff.`,
           };
         }
-        const confirmation = await captureConfirmation(page, artifactDir, runId, logger);
-        return { status: "submitted", confirmation };
+        return { status: "submitted", confirmation: await driver.captureConfirmation() };
       }
 
-      const advanced = await advanceStep(page, step, logger);
-      if (!advanced) {
+      if (!(await driver.advance(step))) {
         return {
           status: "validation_failed",
           step: step.id,
@@ -184,6 +191,6 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
     logger.error("enroll.error", { detail: (err as Error).message });
     return { status: "error", message: (err as Error).message };
   } finally {
-    await session.close();
+    await driver.close();
   }
 }

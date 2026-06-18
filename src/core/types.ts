@@ -25,6 +25,19 @@ export interface ReadyCapture {
   note: string;
 }
 
+/** Result of filling one step. Driver-neutral so both backends return the same shape. */
+export type FillStepResult =
+  | { status: "ok" }
+  | { status: "page_mismatch"; missing: string[] }
+  | { status: "validation_failed"; fieldKey: string; detail?: string };
+
+/**
+ * Which execution backend runs the flow:
+ *  - "playwright": deterministic CDP automation (fast; final Submit blocked by reCAPTCHA)
+ *  - "os":         no-CDP real Chrome driven by OS-level input + screen vision
+ */
+export type DriverName = "playwright" | "os";
+
 /**
  * Result of an enrollment attempt. A discriminated union — the runner never throws
  * past its boundary; every terminal condition is a typed result the caller handles.
@@ -49,6 +62,8 @@ export interface EnrollOptions {
   /** Path to the recipe YAML (e.g. recipes/skyrizi.yaml). */
   recipePath: string;
   patient: Patient;
+  /** Execution backend. Default "playwright". */
+  driver?: DriverName;
   /**
    * Perform the irreversible final Submit. Default false: fill through Confirm,
    * capture state, and stop (returns "ready_to_submit").

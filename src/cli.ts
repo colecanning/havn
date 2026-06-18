@@ -120,6 +120,7 @@ program
   .command("enroll")
   .description("Run a patient through the enrollment flow.")
   .argument("<patientFile>", "path to a patient JSON file")
+  .option("--driver <name>", "execution backend: playwright (default) or os (no-CDP)", "playwright")
   .option("--submit", "auto-click the final Submit (rejected by reCAPTCHA on Skyrizi)", false)
   .option(
     "--handoff",
@@ -144,6 +145,7 @@ program
     async (
       patientFile: string,
       opts: {
+        driver: string;
         submit: boolean;
         handoff: boolean;
         consent: boolean;
@@ -167,6 +169,7 @@ program
       const result = await enroll({
         recipePath: opts.recipe,
         patient,
+        driver: opts.driver === "os" ? "os" : "playwright",
         submit: opts.submit,
         handoff: opts.handoff,
         consentObtained: opts.consent,

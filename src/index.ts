@@ -13,7 +13,12 @@ export type {
   Confirmation,
   ReadyCapture,
   BeforeSubmitHook,
+  DriverName,
+  FillStepResult,
 } from "./core/types.js";
+
+export { makeDriver } from "./drivers/index.js";
+export type { EnrollDriver, DriverContext } from "./drivers/types.js";
 
 export { Patient, parsePatient, Diagnosis, InsuranceType, Address } from "./patient/schema.js";
 export type { Patient as PatientType } from "./patient/schema.js";

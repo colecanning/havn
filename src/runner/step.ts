@@ -6,11 +6,9 @@ import { guardStep } from "../browser/guard.js";
 import { fillField, fieldVisible, waitFieldVisible } from "../browser/field.js";
 import { humanMouse, humanPause, humanScroll, randomBetween } from "../browser/human.js";
 import { getByPath } from "../util/path.js";
+import type { FillStepResult } from "../core/types.js";
 
-export type FillStepResult =
-  | { status: "ok" }
-  | { status: "page_mismatch"; missing: string[] }
-  | { status: "validation_failed"; fieldKey: string; detail?: string };
+export type { FillStepResult };
 
 /** Resolve a patient value to the string the field expects. */
 function formatValue(field: FieldSpec, raw: unknown): string {
