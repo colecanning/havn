@@ -82,6 +82,24 @@ These are why the runner looks the way it does — keep them in mind before "sim
 Account → Treatment → Profile → Savings → Confirm. Field-by-field detail lives in
 `recipes/skyrizi.yaml`; a human walkthrough is in `docs/enrollment-flow.md`.
 
+## The Submit wall (why v1 stops at Confirm) — confirmed empirically
+
+The final Submit **cannot be fully automated**, by the site's design:
+
+1. The Confirm step has a **required consent checkbox** (`marketingnews1`): "I consent
+   to the collection, use, and disclosure of my health-related personal data … for
+   online targeted advertising…". This is the **deferred consent/authorization** — the
+   runner does NOT auto-check it; it's a patient decision.
+2. The step is protected by **invisible reCAPTCHA Enterprise** (anti-bot).
+
+So `--submit` will fill everything, click Submit, and then fail to reach the success
+URL (returning `error`). That earlier test created **no enrollment** — the form stays
+put. The intended v1 behavior is the default: fill through Confirm, stop, and hand off
+to a human who gives consent, clears the CAPTCHA, and submits. The `onBeforeSubmit`
+hook + the wired `--submit` path remain for a future where consent is captured and
+submission happens in an allowed context. Do not try to defeat the CAPTCHA or
+auto-accept the health-data consent.
+
 ## Re-mapping when the form changes
 
 1. Set the changed step's `mapped: false` (or stub its fields) in the recipe.

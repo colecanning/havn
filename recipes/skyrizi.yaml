@@ -164,8 +164,15 @@ steps:
     title: Confirm
     mapped: true
     notes: >-
-      Review + optional mobile phone + marketing/consent checkboxes (left unchecked,
-      privacy-preserving). Submit is irreversible.
+      Review step. SUBMIT CANNOT BE AUTOMATED here, by design of the site:
+        1. checkbox `marketingnews1` is REQUIRED — "I consent to the collection, use, and
+           disclosure of my health-related personal data ... for online targeted
+           advertising". This is the deferred consent/authorization; the runner does NOT
+           auto-check it (it is a patient decision).
+        2. The step is protected by invisible reCAPTCHA Enterprise (anti-bot).
+      `marketingnews` (optional) is SMS marketing consent — left unchecked.
+      So v1 fills through here and STOPS (ready_to_submit); a human gives consent, clears
+      the CAPTCHA, and clicks Submit. No fields are auto-filled on this step.
     fields: []
     advance:
       button: "Submit"

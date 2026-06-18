@@ -77,3 +77,7 @@ docs/enrollment-flow.md  human walkthrough
   validators that ignore programmatic value-setting, and an **email field that rejects
   `+`**. The runner filters to visible elements, types with real key events, and uses
   Gmail's dot trick for test addresses. Details in [CLAUDE.md](CLAUDE.md).
+- **The final Submit cannot be fully automated** (by design): the Confirm step has a
+  required health-data-sharing consent checkbox and is protected by invisible reCAPTCHA.
+  v1 fills everything and stops at Confirm; a human completes consent + CAPTCHA + Submit.
+  `--submit` will fill and try, then stop at that wall without creating an enrollment.

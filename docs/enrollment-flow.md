@@ -47,16 +47,27 @@ Government insurance — Medicare (including Part D), Medicaid, TRICARE, VA — 
 type and, if it isn't commercial, **halts before going any further** and reports the
 patient as ineligible. This happens no matter what the submit setting is.
 
-## Submit is off by default
+## Submit is off by default — and can't be fully automated anyway
 
 By default the agent fills the whole form and **stops at the Confirm step**, saving a
 screenshot so you can see exactly what would be submitted. It returns
 `ready_to_submit` and does nothing irreversible.
 
-Only when you pass `--submit` does it perform the real Submit. Even then, a consent
-checkpoint hook runs first (a placeholder in v1 — patient consent handling is planned
-but not built yet). On success it waits for AbbVie's confirmation page and saves a
-screenshot plus any card ID / confirmation number.
+We confirmed by testing that the **final Submit can't be automated**, by AbbVie's
+design — and that's fine, it's the safe handoff point:
+
+1. The Confirm step has a **required consent checkbox**: *"I consent to the collection,
+   use, and disclosure of my health-related personal data … for online targeted
+   advertising."* That's a decision for the patient, not the agent — it's the consent
+   piece we deliberately left out of v1, so the agent does not check it.
+2. The step is protected by **invisible reCAPTCHA** (anti-bot), which is built to stop
+   automated submissions.
+
+So the right shape for v1 is: the agent does all the tedious form-filling and stops at
+Confirm; a person then reviews, gives consent, clears the CAPTCHA, and clicks Submit.
+Passing `--submit` will still fill everything and try, but it will stop at the consent +
+CAPTCHA wall and report an error without creating an enrollment. (The submit path and a
+consent-hook are wired in code for a future where consent is captured properly.)
 
 ## What can happen at the end of a run
 

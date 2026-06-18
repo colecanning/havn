@@ -104,7 +104,12 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
         } catch {
           return {
             status: "error",
-            message: `Submit did not reach the success signal (${recipe.success_signal.match}).`,
+            message:
+              `Submit did not reach the success signal (${recipe.success_signal.match}). ` +
+              `The Confirm step requires a health-data consent checkbox and is protected by ` +
+              `invisible reCAPTCHA Enterprise — automated submit cannot clear these. v1 is ` +
+              `meant to stop at Confirm (submit off) and hand off to a human for consent + ` +
+              `CAPTCHA + Submit.`,
           };
         }
         const confirmation = await captureConfirmation(page, artifactDir, runId, logger);
