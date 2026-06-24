@@ -1,13 +1,11 @@
 ---
 name: onboard-drug
 description: >-
-  Onboard a new drug / manufacturer co-pay assistance card into the Havn enrollment
-  engine — map its enrollment form into a checked-in recipe so the existing
-  deterministic runner can enroll patients for it. Use this whenever the user wants to
-  add, support, map, or build a recipe for a new drug, manufacturer, or co-pay/savings
-  card (e.g. "add support for Humira", "let's onboard Cosentyx", "map the Dupixent
-  enrollment form", "create a recipe for <drug>"), even if they don't say the word
-  "recipe". This is the repeatable version of the process originally done for Skyrizi.
+  Map a new drug / manufacturer co-pay assistance card's enrollment form into a
+  checked-in recipe so the deterministic runner can enroll patients for it — the
+  repeatable version of the Skyrizi onboarding process. Manual-invoke only: run with
+  /onboard-drug.
+disable-model-invocation: true
 ---
 
 # Onboard a new drug
