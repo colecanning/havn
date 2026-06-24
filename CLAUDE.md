@@ -12,8 +12,11 @@ Submit is irreversible. So we do **not** run an LLM live per enrollment. Instead
 - A **recipe** (`recipes/skyrizi.yaml`) declaratively describes the flow: steps,
   fields, how to locate them, the eligibility rule, and the success signal. It was
   produced by mapping the live form and is checked in.
-- A **deterministic runner** (`src/core/enroll.ts` + `src/runner/*` + `src/browser/*`)
-  executes the recipe for a patient with plain Playwright — no model at runtime.
+- A **deterministic runner** (`src/core/enroll.ts`) executes the recipe via a
+  **pluggable backend** (`src/drivers/*`, chosen with `--driver`). The default
+  `playwright` driver (`src/runner/*` + `src/browser/*`) uses plain Playwright — no
+  model at runtime. (`os`, a no-CDP backend, is a stub — it proved unnecessary; see
+  `docs/submit-and-recaptcha.md`.)
 - A **page-match guard** halts if the live form no longer matches the recipe rather
   than submitting into a changed form.
 
@@ -22,22 +25,33 @@ Self-healing is out of scope. When the form changes, re-map by hand (see below).
 ## How to run
 
 ```bash
-pnpm validate examples/patient.example.json   # missing-info check, no browser
-pnpm enroll   examples/patient.example.json   # fill through Confirm, STOP (submit off)
-pnpm enroll   examples/patient.example.json -- --submit   # actually submit (irreversible)
-pnpm map                                       # drive the live form, snapshot unmapped steps
-pnpm test                                      # unit tests
+pnpm validate examples/patient.example.json    # missing-info check, no browser
+pnpm enroll   examples/patient.example.json    # fill through Confirm, STOP (submit off — default)
+
+# Fully automated submit (VERIFIED). Must be headed real Chrome. --consent ONLY when
+# patient consent was obtained out-of-band. --test-email routes to the dot-trick inbox.
+pnpm enroll examples/patient.example.json -- --submit --consent --channel chrome --headful --test-email
+
+# Fallback: agent fills everything, a human clicks the final Submit:
+pnpm enroll examples/patient.example.json -- --handoff --consent --channel chrome
+
+pnpm map                                        # drive the live form, snapshot unmapped steps
+pnpm test                                       # unit tests
 ```
 
-CLI entry: `src/cli.ts` (commander). Core entry: `enroll()` in `src/core/enroll.ts`
-— transport-agnostic, so the future API trigger wraps the same function. Exit codes
-are distinct per terminal status (see `exitCodeFor` in `src/cli.ts`).
+Key flags: `--submit` (default off), `--consent`, `--channel chrome`, `--headful`,
+`--handoff`, `--driver playwright|os`, `--no-human` (faster, skips human-like typing),
+`--user-data-dir <dir>` (persistent profile), `--headless-new`. CLI entry: `src/cli.ts`
+(commander). Core entry: `enroll()` in `src/core/enroll.ts` — transport-agnostic, so the
+future API trigger wraps the same function. Exit codes are distinct per terminal status
+(`exitCodeFor` in `src/cli.ts`).
 
 ## Guardrails (do not weaken without asking)
 
 - **Submit is gated by the `submit` flag, default OFF.** Off = fill through Confirm,
-  screenshot, and return `ready_to_submit`. On = run the (deferred) consent hook,
-  click Submit, wait for the success redirect, capture confirmation.
+  screenshot, return `ready_to_submit`. On = (check the consent box if `--consent`),
+  retry-click Submit until the success redirect, capture confirmation. `--handoff`
+  instead leaves a human to click Submit. Submit requires headed real Chrome.
 - **Eligibility gate is commercial-insurance only.** Government insurance (Medicare,
   Medicaid, TRICARE, VA) is disqualifying by law. Enforced at the Savings step before
   advancing, regardless of the submit flag (`src/runner/eligibility.ts`).
@@ -116,6 +130,18 @@ display is required.** For a server, run headed Chrome under a **virtual display
 on Linux; on macOS you need a real logged-in GUI session. `--handoff` remains a fallback
 (human clicks Submit). **Never** add CAPTCHA-solving/token-relay services.
 
+| | **Headed** (real Chrome) | **Headless** (old + `--headless-new`) |
+|---|---|---|
+| reCAPTCHA score | 0.1–0.3 (passes) | **0.00** (Google hard-flags it) |
+| Fills 5 steps? | ✅ | ✅ |
+| Submit passes? | ✅ (with retry) | ❌ 5/5 rejected |
+| Needs a display? | yes (real or xvfb) | no |
+| **Verdict** | **use this** | dead end for Submit |
+
+**Full breakdown** — every approach tried (what works / doesn't / is in the code), the
+score data, and how to scale past reCAPTCHA legitimately (hub/API vs. profile farms):
+see **`docs/submit-and-recaptcha.md`**.
+
 ### Measured reCAPTCHA v3 score (cleantalk.org test, a proxy for the Enterprise score)
 - Any headless mode: **0.00** (flat floor — Google hard-flags headless; no tweak helped).
 - Headed real Chrome: **0.1–0.3** (low but nonzero; enough to pass AbbVie with the retry).
@@ -146,6 +172,10 @@ may help the score / makes handoff natural); the **retry** is what actually matt
 
 ## Deferred / not in v1
 
-- Patient consent/authorization: a no-op `onBeforeSubmit` hook is wired in front of
-  Submit (`EnrollOptions.onBeforeSubmit`) — enforcement is future work.
+- Patient consent: the runner checks the required consent box only with `--consent`
+  (consent obtained out-of-band). The consent-capture/recording **workflow** and the
+  `onBeforeSubmit` audit hook (`EnrollOptions.onBeforeSubmit`, currently no-op) are
+  future work.
+- Running unattended on a server (needs headed-under-xvfb; see
+  `docs/submit-and-recaptcha.md`); the no-CDP `os` driver (stubbed, unnecessary).
 - Self-healing recipes; capturing the digital card from the email; the HTTP API.

@@ -66,13 +66,15 @@ The CLI exits with a distinct code per outcome (0 ok/ready, 1 error, 2 needs-inf
 ```
 recipes/skyrizi.yaml   the checked-in recipe (all 5 steps mapped)
 src/core/enroll.ts     enroll() orchestrator (the public entry point)
+src/drivers/*          pluggable backends (playwright; os = stub) + EnrollDriver interface
 src/runner/*           step executor, eligibility gate, confirmation capture
 src/browser/*          session, preflight, native-event field fill, page-match guard
 src/recipe/*           recipe schema (zod) + loader
 src/patient/*          patient schema, missing-info validation, test-email helper
 src/mapper/map.ts      live-form mapper (for re-mapping)
-src/cli.ts             CLI (enroll | validate | map)
-docs/enrollment-flow.md  human walkthrough
+src/cli.ts             CLI (enroll | validate | map | warm)
+docs/enrollment-flow.md       human walkthrough
+docs/submit-and-recaptcha.md  approaches tried, headed-vs-headless, scaling options
 ```
 
 ## Notes
