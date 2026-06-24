@@ -2,6 +2,7 @@ import type { Recipe, StepSpec, InteractionSpec } from "../recipe/schema.js";
 import type { Patient } from "../patient/schema.js";
 import type { Logger } from "../logging/logger.js";
 import type { Confirmation, FillStepResult, ReadyCapture } from "../core/types.js";
+import type { BrowserbaseConfig } from "../browser/browserbase.js";
 
 /**
  * An enrollment backend. The orchestrator (core/enroll.ts) owns the driver-agnostic
@@ -39,6 +40,8 @@ export interface DriverContext {
   slowMo?: number;
   channel?: string;
   userDataDir?: string;
+  /** Run on Browserbase (cloud) over CDP instead of a local browser; inerts the local opts. */
+  browserbase?: BrowserbaseConfig;
   humanize: boolean;
   artifactDir: string;
   runId: string;

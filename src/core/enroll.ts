@@ -59,6 +59,7 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
       slowMo: opts.slowMo,
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.userDataDir ? { userDataDir: opts.userDataDir } : {}),
+      ...(opts.browserbase ? { browserbase: opts.browserbase } : {}),
       humanize: opts.humanize ?? true,
       artifactDir,
       runId,

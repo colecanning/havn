@@ -98,8 +98,8 @@ pnpm validate path/to/patient.json
 # 2. Dry run — fill everything, stop before Submit, save a Confirm screenshot:
 pnpm enroll path/to/patient.json
 
-# 3. Real submission (irreversible):
-pnpm enroll path/to/patient.json -- --submit
+# 3. Real submission (irreversible). Flags go directly after the file — NO bare `--`:
+pnpm enroll path/to/patient.json --submit --consent --channel chrome --headful
 ```
 
 A patient record looks like `examples/patient.example.json`. Required up front:

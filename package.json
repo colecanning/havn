@@ -12,11 +12,13 @@
     "enroll": "tsx src/cli.ts enroll",
     "validate": "tsx src/cli.ts validate",
     "map": "tsx src/cli.ts map",
+    "bb:spike": "tsx scripts/bb-spike.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@browserbasehq/sdk": "^2.14.1",
     "commander": "^12.1.0",
     "dotenv": "^16.4.5",
     "js-yaml": "^4.1.0",

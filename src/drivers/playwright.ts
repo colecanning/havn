@@ -1,3 +1,5 @@
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { Page } from "playwright";
 import type { Recipe, StepSpec, InteractionSpec } from "../recipe/schema.js";
 import type { Patient } from "../patient/schema.js";
@@ -33,7 +35,32 @@ export class PlaywrightDriver implements EnrollDriver {
       slowMo: this.ctx.slowMo,
       ...(this.ctx.channel ? { channel: this.ctx.channel } : {}),
       ...(this.ctx.userDataDir ? { userDataDir: this.ctx.userDataDir } : {}),
+      ...(this.ctx.browserbase ? { browserbase: this.ctx.browserbase } : {}),
     });
+    // Opt-in network diagnostics (HAVN_LOG_NETWORK=1): log 4xx/5xx on form/reCAPTCHA
+    // endpoints — e.g. the 400 CaptchaValidationException when a Submit is bot-flagged.
+    // Structured logs get status + URL only (never the body). For the form-SUBMIT endpoint
+    // we additionally dump the response body to a gitignored artifact so we can read the
+    // exact server error (it can echo submitted data, so it is sensitive — artifacts only).
+    if (process.env.HAVN_LOG_NETWORK) {
+      const errLog = join(this.ctx.artifactDir, this.ctx.runId, "net-errors.log");
+      this.page.on("response", (res) => {
+        const status = res.status();
+        if (status < 400) return;
+        const url = res.url();
+        if (!/abbvie|skyrizi|recaptcha|enroll|signup|guide|forms/i.test(url)) return;
+        this.ctx.logger.info("net.error_response", { status, url: url.slice(0, 140) });
+        if (/\/submit\//.test(url)) {
+          res
+            .text()
+            .then((body) => {
+              mkdirSync(dirname(errLog), { recursive: true });
+              appendFileSync(errLog, `\n[${status}] ${url}\n${body}\n`);
+            })
+            .catch(() => {});
+        }
+      });
+    }
     await this.page.goto(recipe.url, { waitUntil: "domcontentloaded" });
     await runPreflight(this.page, recipe.preflight, this.ctx.logger);
   }

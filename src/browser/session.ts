@@ -4,6 +4,11 @@ import {
   type BrowserContext,
   type Page,
 } from "playwright";
+import {
+  createBrowserbaseSession,
+  releaseBrowserbaseSession,
+  type BrowserbaseConfig,
+} from "./browserbase.js";
 
 export interface Session {
   /** Present only for non-persistent launches. */
@@ -37,6 +42,13 @@ export interface SessionOptions {
    * channel:"chrome" + headful for the best score.
    */
   userDataDir?: string;
+  /**
+   * Run the browser on Browserbase (cloud) instead of locally: connect over CDP to a
+   * genuinely non-headless Chrome with a residential-proxy IP. When set, the LOCAL options
+   * above (headful / newHeadless / channel / userDataDir) are inert — Browserbase owns the
+   * browser. See browser/browserbase.ts.
+   */
+  browserbase?: BrowserbaseConfig;
 }
 
 /**
@@ -70,6 +82,27 @@ const CONTEXT_DEFAULTS = {
  * it uses a fresh isolated context.
  */
 export async function launchSession(opts: SessionOptions = {}): Promise<Session> {
+  // Remote mode: connect to a Browserbase cloud browser over CDP instead of launching
+  // locally. The session already has a default context + blank page — reuse them (do NOT
+  // newContext/newPage, which would drop Browserbase's session features). We also skip
+  // FINGERPRINT_MASK here: Browserbase ships a real fingerprint, and layering our fakes on
+  // top (fake plugins, webdriver=undefined) creates inconsistencies a detector can flag.
+  if (opts.browserbase) {
+    const remote = await createBrowserbaseSession(opts.browserbase);
+    const browser = await chromium.connectOverCDP(remote.connectUrl);
+    const context = browser.contexts()[0] ?? (await browser.newContext(CONTEXT_DEFAULTS));
+    const page = context.pages()[0] ?? (await context.newPage());
+    return {
+      browser,
+      context,
+      page,
+      close: async () => {
+        await browser.close().catch(() => {});
+        await releaseBrowserbaseSession(remote.bb, remote.sessionId);
+      },
+    };
+  }
+
   // Three launch modes: headed window, new headless (full engine, no window), or the
   // old headless shell (default). reCAPTCHA scores headed/new-headless far better.
   const mode = opts.headful

@@ -30,21 +30,36 @@ pnpm enroll   examples/patient.example.json    # fill through Confirm, STOP (sub
 
 # Fully automated submit (VERIFIED). Must be headed real Chrome. --consent ONLY when
 # patient consent was obtained out-of-band. --test-email routes to the dot-trick inbox.
-pnpm enroll examples/patient.example.json -- --submit --consent --channel chrome --headful --test-email
+# (Flags go directly after the file — NO bare `--`; see the gotcha below.)
+pnpm enroll examples/patient.example.json --submit --consent --channel chrome --headful --test-email
 
 # Fallback: agent fills everything, a human clicks the final Submit:
-pnpm enroll examples/patient.example.json -- --handoff --consent --channel chrome
+pnpm enroll examples/patient.example.json --handoff --consent --channel chrome
+
+# Run the headed browser in the cloud (Browserbase) instead of this laptop. Genuinely
+# headed Chrome + residential proxy; needs BROWSERBASE_API_KEY/PROJECT_ID in .env and a
+# paid (Developer+) plan for the proxy. NOTE: flags go AFTER the file with NO bare `--`
+# (see the gotcha below). See docs/submit-and-recaptcha.md.
+pnpm bb:spike                                                          # non-destructive connectivity check first
+pnpm enroll examples/patient.example.json --remote browserbase --submit --consent --test-email
 
 pnpm map                                        # drive the live form, snapshot unmapped steps
 pnpm test                                       # unit tests
 ```
 
+> **`--` gotcha (pnpm 9.x — verified):** pnpm forwards a bare `--` to the script, and
+> commander treats everything after it as ignored operands. So `pnpm enroll FILE -- --submit`
+> silently runs with submit OFF (and drops every other flag). Put flags **directly after the
+> file** with NO `--` (pnpm forwards them fine), or run `npx tsx src/cli.ts enroll FILE
+> --submit …`. This applies to every `pnpm` command here (`enroll`/`validate`/`map`).
+
 Key flags: `--submit` (default off), `--consent`, `--channel chrome`, `--headful`,
 `--handoff`, `--driver playwright|os`, `--no-human` (faster, skips human-like typing),
-`--user-data-dir <dir>` (persistent profile), `--headless-new`. CLI entry: `src/cli.ts`
-(commander). Core entry: `enroll()` in `src/core/enroll.ts` — transport-agnostic, so the
-future API trigger wraps the same function. Exit codes are distinct per terminal status
-(`exitCodeFor` in `src/cli.ts`).
+`--user-data-dir <dir>` (persistent profile), `--headless-new`,
+`--remote browserbase` (cloud headed via Browserbase; `--bb-geo <state>`, `--no-bb-proxy`).
+CLI entry: `src/cli.ts` (commander). Core entry: `enroll()` in `src/core/enroll.ts` —
+transport-agnostic, so the future API trigger wraps the same function. Exit codes are
+distinct per terminal status (`exitCodeFor` in `src/cli.ts`).
 
 ## Guardrails (do not weaken without asking)
 
@@ -127,8 +142,14 @@ nut.js / OS-input / a no-CDP driver.
 (`--headless-new`) fill the form fine but the Submit is rejected by reCAPTCHA every time
 (5/5 retries) — reCAPTCHA scores headless as bot. **A genuinely headed browser with a
 display is required.** For a server, run headed Chrome under a **virtual display (xvfb)**
-on Linux; on macOS you need a real logged-in GUI session. `--handoff` remains a fallback
-(human clicks Submit). **Never** add CAPTCHA-solving/token-relay services.
+on Linux; on macOS you need a real logged-in GUI session. Or run it off-laptop on
+**Browserbase** (`--remote browserbase`) — genuinely headed cloud Chrome + residential
+proxy, no xvfb to manage. **Measured: the full fill works, but the Submit is 400'd 5/5 even
+with a confirmed residential IP** — a fresh cloud session lacks the warmed Google identity
+that dominates the reСAPTCHA score, so unattended Submit does NOT pass yet (needs a warmed
+Browserbase Context, handoff, or Scale "Verified"; see `docs/submit-and-recaptcha.md`).
+`--handoff` remains a fallback (human clicks Submit). **Never** add CAPTCHA-solving/token-relay
+services.
 
 | | **Headed** (real Chrome) | **Headless** (old + `--headless-new`) |
 |---|---|---|

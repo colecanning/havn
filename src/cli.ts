@@ -11,6 +11,7 @@ import { makeRunId } from "./util/runId.js";
 import { mapForm } from "./mapper/map.js";
 import { launchSession } from "./browser/session.js";
 import type { EnrollResult } from "./core/types.js";
+import type { BrowserbaseConfig } from "./browser/browserbase.js";
 
 const DEFAULT_RECIPE = "recipes/skyrizi.yaml";
 const DEFAULT_TEST_EMAIL = "ccanning10@gmail.com";
@@ -23,6 +24,32 @@ function envBool(name: string, def = false): boolean {
 
 function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+}
+
+/**
+ * Build the Browserbase config from the --remote flag + env. Exits with a clear message if
+ * the provider is unknown or the API key is missing (BROWSERBASE_API_KEY is required;
+ * BROWSERBASE_PROJECT_ID is optional — inferred from the key when omitted).
+ */
+function buildBrowserbaseConfig(provider: string, geoState: string, proxy: boolean): BrowserbaseConfig {
+  if (provider !== "browserbase") {
+    console.error(`Unknown --remote provider "${provider}". Only 'browserbase' is supported.`);
+    process.exit(1);
+  }
+  const apiKey = process.env.BROWSERBASE_API_KEY;
+  if (!apiKey) {
+    console.error(
+      "--remote browserbase requires BROWSERBASE_API_KEY (and ideally BROWSERBASE_PROJECT_ID)." +
+        " Set them in .env.",
+    );
+    process.exit(1);
+  }
+  return {
+    apiKey,
+    ...(process.env.BROWSERBASE_PROJECT_ID ? { projectId: process.env.BROWSERBASE_PROJECT_ID } : {}),
+    proxy,
+    geolocation: { country: "US", state: geoState },
+  };
 }
 
 /** Exit codes are distinct per terminal status so callers/scripts can branch. */
@@ -136,6 +163,17 @@ program
   .option("--headless-new", "use Chrome 'new' headless (no window, full engine)", false)
   .option("--channel <name>", "browser channel, e.g. 'chrome' for real Chrome")
   .option("--user-data-dir <path>", "reuse a persistent (warmed) browser profile dir")
+  .option(
+    "--remote <provider>",
+    "run the browser in the cloud instead of locally: 'browserbase' " +
+      "(needs BROWSERBASE_API_KEY / BROWSERBASE_PROJECT_ID)",
+  )
+  .option("--bb-geo <state>", "Browserbase residential-proxy US state code", "NY")
+  .option(
+    "--no-bb-proxy",
+    "disable Browserbase's residential proxy (free-plan connectivity testing only; the " +
+      "proxy is the reCAPTCHA reputation lever — leave it on for real submits)",
+  )
   .option("--no-human", "disable human-like slow typing/scrolling/pauses (much faster)")
   .option("--test-email", "override patient email with the test dot-alias for this run", false)
   .option("-r, --recipe <path>", "recipe YAML", DEFAULT_RECIPE)
@@ -154,6 +192,9 @@ program
         headlessNew: boolean;
         channel?: string;
         userDataDir?: string;
+        remote?: string;
+        bbGeo: string;
+        bbProxy: boolean;
         human: boolean;
         testEmail: boolean;
         recipe: string;
@@ -168,6 +209,9 @@ program
         raw.email = testEmail(runId, process.env.HAVN_TEST_EMAIL || DEFAULT_TEST_EMAIL);
       }
       const patient = parsePatient(raw);
+      const browserbase = opts.remote
+        ? buildBrowserbaseConfig(opts.remote, opts.bbGeo, opts.bbProxy)
+        : undefined;
       const result = await enroll({
         recipePath: opts.recipe,
         patient,
@@ -180,6 +224,7 @@ program
         humanize: opts.human,
         ...(opts.channel ? { channel: opts.channel } : {}),
         ...(opts.userDataDir ? { userDataDir: opts.userDataDir } : {}),
+        ...(browserbase ? { browserbase } : {}),
         ...(opts.slowmo != null ? { slowMo: opts.slowmo } : {}),
         artifactDir: opts.artifactDir,
         runId,

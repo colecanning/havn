@@ -34,10 +34,10 @@ pnpm enroll examples/patient.example.json
 
 # Fully automated enrollment (verified working): fills everything, checks consent, and
 # retries Submit through the reCAPTCHA timing quirk. Use real Chrome, headed:
-pnpm enroll examples/patient.example.json -- --submit --consent --channel chrome --headful --test-email
+pnpm enroll examples/patient.example.json --submit --consent --channel chrome --headful --test-email
 
 # Handoff fallback: fills everything, a human clicks Submit:
-pnpm enroll examples/patient.example.json -- --handoff --consent --channel chrome --test-email
+pnpm enroll examples/patient.example.json --handoff --consent --channel chrome --test-email
 
 # Re-map the live form (drives it with dummy data, never submits):
 pnpm map
@@ -47,7 +47,12 @@ pnpm test
 ```
 
 Useful `enroll` flags: `--submit` (default off), `--headful`, `--test-email`,
-`--run-id <id>`, `--slowmo <ms>`, `--recipe <path>`, `--artifact-dir <dir>`.
+`--run-id <id>`, `--slowmo <ms>`, `--recipe <path>`, `--artifact-dir <dir>`,
+`--remote browserbase` (run headed in the cloud).
+
+> Pass flags **directly after the patient file** — do **not** use a bare `--` separator.
+> On pnpm 9.x the `--` is forwarded to the CLI, which then ignores everything after it, so
+> `pnpm enroll FILE -- --submit` silently runs with submit OFF.
 
 The CLI exits with a distinct code per outcome (0 ok/ready, 1 error, 2 needs-info,
 3 ineligible, 4 page-mismatch, 5 validation-failed, 6 unmapped-step).

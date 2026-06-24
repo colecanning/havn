@@ -1,4 +1,5 @@
 import type { Patient } from "../patient/schema.js";
+import type { BrowserbaseConfig } from "../browser/browserbase.js";
 
 /** A single piece of required-but-missing patient info, grouped by the step that needs it. */
 export interface NeedsItem {
@@ -87,6 +88,12 @@ export interface EnrollOptions {
   channel?: string;
   /** Reuse a persistent (warmed) browser profile directory across runs. */
   userDataDir?: string;
+  /**
+   * Run the browser on Browserbase (cloud) over CDP instead of locally — genuinely
+   * non-headless Chrome on a residential IP, the legitimate way to pass the Skyrizi
+   * reCAPTCHA off this laptop. When set, headful/newHeadless/channel/userDataDir are inert.
+   */
+  browserbase?: BrowserbaseConfig;
   /**
    * Human-like behavior: slow uneven typing with occasional typos+corrections, slow
    * scrolling, and 1–3s pauses between fields. Raises the reCAPTCHA score (and run

@@ -34,7 +34,7 @@ async function tryClick(
 }
 
 async function dismissCookieBanner(page: Page, logger: Logger): Promise<void> {
-  await tryClick(
+  const declined = await tryClick(
     [
       page.locator("#onetrust-reject-all-handler"),
       page.getByRole("button", { name: /reject all/i }),
@@ -45,6 +45,26 @@ async function dismissCookieBanner(page: Page, logger: Logger): Promise<void> {
     logger,
     "cookie_banner",
   );
+  if (declined) return;
+
+  // Some OneTrust variants (IAB TCF) expose no first-layer reject button — only
+  // "Cookies Settings" / "Accept" — so we can't decline with a single click. A fresh
+  // browser (e.g. a cloud session with no prior cookies) shows this variant every time,
+  // and its overlay intercepts clicks on the form fields. When we can't decline, remove
+  // the consent overlay so it stops blocking the form. Removing it accepts NO cookies.
+  const removed = await page
+    .evaluate(() => {
+      let n = 0;
+      for (const sel of ["#onetrust-consent-sdk", "#onetrust-banner-sdk", ".onetrust-pc-dark-filter"]) {
+        document.querySelectorAll(sel).forEach((el) => {
+          el.remove();
+          n++;
+        });
+      }
+      return n;
+    })
+    .catch(() => 0);
+  if (removed) logger.info("preflight.cookie_overlay_removed", { count: removed });
 }
 
 async function dismissChatWidget(page: Page, logger: Logger): Promise<void> {
@@ -57,6 +77,33 @@ async function dismissChatWidget(page: Page, logger: Logger): Promise<void> {
     logger,
     "chat_widget",
   );
+}
+
+/**
+ * AbbVie's sticky "Important Safety Information" safety bar floats over the page (fixed/
+ * sticky position) and intercepts clicks on form fields below the fold — Playwright scrolls
+ * the field into view, then the bar covers the click point. We never interact with the bar,
+ * so we make it click-through (pointer-events:none) rather than removing it (keeps layout).
+ * Harmless where it doesn't apply; on a real headed browser (incl. Browserbase) it's what
+ * lets the very first field be clicked at all.
+ */
+async function neutralizeSafetyBar(page: Page, logger: Logger): Promise<void> {
+  const n = await page
+    .evaluate(() => {
+      const sel = '[class*="safety-bar"], [id*="safety-bar"], .abbv-safety-bar-fade, .abbv-isi';
+      let count = 0;
+      for (const node of Array.from(document.querySelectorAll(sel))) {
+        const el = node as HTMLElement;
+        const pos = getComputedStyle(el).position;
+        if (pos === "fixed" || pos === "sticky" || el.className.includes("fade")) {
+          el.style.pointerEvents = "none";
+          count++;
+        }
+      }
+      return count;
+    })
+    .catch(() => 0);
+  if (n) logger.info("preflight.safety_bar_neutralized", { count: n });
 }
 
 export async function runPreflight(
@@ -74,4 +121,6 @@ export async function runPreflight(
         break;
     }
   }
+  // Always clear the sticky safety bar's click interception, regardless of recipe actions.
+  await neutralizeSafetyBar(page, logger);
 }
