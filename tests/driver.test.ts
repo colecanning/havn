@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runEnrollment } from "../src/core/enroll.js";
+import { runEnrollment, runWithSessionRetry } from "../src/core/enroll.js";
 import { makeDriver } from "../src/drivers/index.js";
 import type { EnrollDriver } from "../src/drivers/types.js";
 import type { EnrollOptions, FillStepResult } from "../src/core/types.js";
@@ -137,5 +137,47 @@ describe("orchestrator flow (fake driver)", () => {
     const d = new FakeDriver({ awaitSuccess: false });
     const r = await run(d, { handoff: true, consentObtained: true });
     expect(r.status).toBe("ready_to_submit");
+  });
+});
+
+describe("session-level retry (fresh-session fallback for reCAPTCHA)", () => {
+  // A driver factory whose Nth driver succeeds/fails the Submit per `awaitResults[N]`
+  // (default: fail) — i.e. simulates a per-session reCAPTCHA verdict across fresh sessions.
+  function sessionFactory(awaitResults: boolean[]) {
+    let made = 0;
+    return {
+      make(): EnrollDriver {
+        const d = new FakeDriver({ awaitSuccess: awaitResults[made] ?? false });
+        made += 1;
+        return d;
+      },
+      get count() {
+        return made;
+      },
+    };
+  }
+  const base = (patient: Patient) =>
+    ({ recipePath: "recipes/skyrizi.yaml", patient, submit: true, consentObtained: true }) as EnrollOptions;
+
+  it("retries on a fresh session after a reCAPTCHA block and succeeds", async () => {
+    const f = sessionFactory([false, false, true]); // 3rd session passes
+    const r = await runWithSessionRetry(() => f.make(), recipe, base(complete), "test", logger, 5);
+    expect(r.status).toBe("submitted");
+    expect(f.count).toBe(3); // stopped on first success
+  });
+
+  it("errors after exhausting all attempts (5 total), never more", async () => {
+    const f = sessionFactory([]); // every session is blocked
+    const r = await runWithSessionRetry(() => f.make(), recipe, base(complete), "test", logger, 5);
+    expect(r.status).toBe("error");
+    expect(f.count).toBe(5);
+  });
+
+  it("does not retry a non-retryable outcome (ineligible halts on attempt 1)", async () => {
+    const medicare = parsePatient({ ...complete, insurance_type: "medicare" });
+    const f = sessionFactory([true, true, true, true, true]);
+    const r = await runWithSessionRetry(() => f.make(), recipe, base(medicare), "test", logger, 5);
+    expect(r.status).toBe("ineligible");
+    expect(f.count).toBe(1);
   });
 });

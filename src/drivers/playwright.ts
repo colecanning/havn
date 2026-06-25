@@ -11,6 +11,49 @@ import { fillStep, advanceStep, clickAdvance, applyConsent } from "../runner/ste
 import { captureReady, captureConfirmation } from "../runner/confirm.js";
 
 /**
+ * PII-SAFE summary of a form-submit POST body (for reCAPTCHA debugging only). The payload
+ * carries patient PII, so we emit ONLY shape facts — never any field value: total length,
+ * the field key NAMES (static identifiers, not PII), the longest string-value length (a
+ * reCAPTCHA token is ~500–2000 chars, so a large max ⇒ a token is attached), and the name +
+ * length of any captcha/token-ish field. Lets us tell "token present" from "token missing"
+ * without logging data.
+ */
+function summarizeSubmitPayload(postData: string | null): string {
+  if (!postData) return "no postData";
+  const keys: string[] = [];
+  let maxValueLen = 0;
+  let captcha: { key: string; len: number } | null = null;
+  const note = (key: string, value: unknown) => {
+    keys.push(key);
+    if (typeof value === "string") {
+      maxValueLen = Math.max(maxValueLen, value.length);
+      if (/captcha|recaptcha|token/i.test(key)) captcha = { key, len: value.length };
+    }
+  };
+  try {
+    const walk = (o: unknown, prefix = ""): void => {
+      if (o && typeof o === "object") {
+        for (const [k, v] of Object.entries(o)) {
+          const path = prefix ? `${prefix}.${k}` : k;
+          note(path, v);
+          if (v && typeof v === "object") walk(v, path);
+        }
+      }
+    };
+    walk(JSON.parse(postData));
+  } catch {
+    // Not JSON (e.g. multipart) — pull field names only; can't safely length each value.
+    for (const m of postData.matchAll(/name="([^"]+)"/g)) keys.push(m[1] ?? "");
+    maxValueLen = -1; // unknown
+  }
+  return (
+    `length=${postData.length} maxValueLen=${maxValueLen} ` +
+    `captcha=${captcha ? `${(captcha as { key: string }).key}(tokenLen=${(captcha as { len: number }).len})` : "NONE"} ` +
+    `keys=[${keys.join(",")}]`
+  );
+}
+
+/**
  * Deterministic CDP backend. A thin adapter over the existing Playwright code; all the
  * field-fill/guard/advance/consent/capture logic lives in browser/* and runner/*.
  *
@@ -59,6 +102,41 @@ export class PlaywrightDriver implements EnrollDriver {
             })
             .catch(() => {});
         }
+      });
+    }
+    // Opt-in reCAPTCHA diagnostics (HAVN_DEBUG_RECAPTCHA=1): does the Enterprise script +
+    // token-generation actually run over the (proxied) connection, are there reCAPTCHA
+    // console errors, and is a real token attached to the Submit POST? Distinguishes a hard
+    // bot-flag (token generated, server rejects it) from a mechanical failure (token never
+    // generated/attached). PII-safe — recaptcha URLs are query-stripped, the submit payload
+    // is summarized to shape only (see summarizeSubmitPayload), values are never written.
+    if (process.env.HAVN_DEBUG_RECAPTCHA) {
+      const rcLog = join(this.ctx.artifactDir, this.ctx.runId, "recaptcha-debug.log");
+      const write = (line: string) => {
+        try {
+          mkdirSync(dirname(rcLog), { recursive: true });
+          appendFileSync(rcLog, line + "\n");
+        } catch {
+          /* best-effort */
+        }
+      };
+      const isRecaptcha = (u: string) => /google\.com\/recaptcha|recaptcha\.net|gstatic\.com\/recaptcha/.test(u);
+      this.page.on("response", (res) => {
+        const u = res.url();
+        if (isRecaptcha(u)) write(`[net ${res.status()}] ${res.request().method()} ${u.split("?")[0]}`);
+      });
+      this.page.on("requestfailed", (req) => {
+        const u = req.url();
+        if (isRecaptcha(u) || /\/submit\//.test(u))
+          write(`[net FAILED ${req.failure()?.errorText ?? "?"}] ${u.split("?")[0]}`);
+      });
+      this.page.on("request", (req) => {
+        if (req.method() === "POST" && /\/submit\//.test(req.url()))
+          write(`[submit POST] ${summarizeSubmitPayload(req.postData())}`);
+      });
+      this.page.on("console", (msg) => {
+        const t = msg.text();
+        if (/captcha|recaptcha|grecaptcha/i.test(t)) write(`[console.${msg.type()}] ${t.slice(0, 200)}`);
       });
     }
     await this.page.goto(recipe.url, { waitUntil: "domcontentloaded" });

@@ -2,6 +2,7 @@ import type { Locator, Page } from "playwright";
 import type { FieldSpec, InteractionSpec } from "../recipe/schema.js";
 import type { Logger } from "../logging/logger.js";
 import { humanType } from "./human.js";
+import { neutralizeFloatingOverlays } from "./preflight.js";
 
 /**
  * Field interaction, tuned to the live AbbVie form (an AEM Adaptive Form).
@@ -91,7 +92,13 @@ async function fillText(
       await humanType(page, loc, value);
     } else {
       await loc.scrollIntoViewIfNeeded().catch(() => {});
-      await loc.click({ timeout: ACTION_TIMEOUT });
+      await loc.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center" })).catch(() => {});
+      try {
+        await loc.click({ timeout: ACTION_TIMEOUT });
+      } catch {
+        await neutralizeFloatingOverlays(page).catch(() => {});
+        await loc.click({ timeout: ACTION_TIMEOUT, force: true });
+      }
       await loc.press("ControlOrMeta+a").catch(() => {});
       await loc.press("Delete").catch(() => {});
       await loc.pressSequentially(value, { delay: 28, timeout: ACTION_TIMEOUT });
@@ -137,8 +144,19 @@ async function fillRadio(page: Page, field: FieldSpec, value: string): Promise<F
     ? exact.first()
     : page.getByText(text, { exact: false }).filter({ visible: true }).first();
   try {
+    // The radio sits below the fold; after scroll, sticky chrome (safety bar, inline ISI,
+    // menubar) can cover the click point and intercept it. Overlays were already neutralized
+    // in fillField; here we additionally center the target away from sticky edges, then click
+    // — falling back to a forced click past any residual interceptor (we've already confirmed
+    // this is the right, visible element).
     await loc.scrollIntoViewIfNeeded().catch(() => {});
-    await loc.click({ timeout: ACTION_TIMEOUT });
+    await loc.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center" })).catch(() => {});
+    try {
+      await loc.click({ timeout: ACTION_TIMEOUT });
+    } catch {
+      await neutralizeFloatingOverlays(page);
+      await loc.click({ timeout: ACTION_TIMEOUT, force: true });
+    }
   } catch (err) {
     return { accepted: false, method: "radio", detail: (err as Error).message };
   }
@@ -157,6 +175,11 @@ export async function fillField(
   logger: Logger,
   humanize = false,
 ): Promise<FillOutcome> {
+  // Floating chrome (safety bar, inline ISI, menubar) re-renders per step and can cover a
+  // field's click point — radio, select, and text all click. Clear it before every field;
+  // pointer-events:none persists until the next re-render, so one call per field is enough.
+  await neutralizeFloatingOverlays(page).catch(() => {});
+
   let outcome: FillOutcome;
   if (field.type === "radio") outcome = await fillRadio(page, field, value);
   else if (field.type === "select") outcome = await fillSelect(page, field, value);

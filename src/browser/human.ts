@@ -1,4 +1,5 @@
 import type { Locator, Page } from "playwright";
+import { neutralizeFloatingOverlays } from "./preflight.js";
 
 /**
  * Human-like behavior. Real users type unevenly, make and fix mistakes, pause between
@@ -58,8 +59,18 @@ export async function humanScroll(page: Page): Promise<void> {
  * pause. Leaves the field holding exactly `value`.
  */
 export async function humanType(page: Page, locator: Locator, value: string): Promise<void> {
+  // Center the field away from sticky edges and clear floating chrome (ISI/safety-bar/menubar)
+  // that can cover the click point, then click — forcing past any residual interceptor on
+  // retry, with a bounded timeout (a plain click here would hang the full 30s default).
   await locator.scrollIntoViewIfNeeded().catch(() => {});
-  await locator.click();
+  await locator.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center" })).catch(() => {});
+  await neutralizeFloatingOverlays(page).catch(() => {});
+  try {
+    await locator.click({ timeout: 8000 });
+  } catch {
+    await neutralizeFloatingOverlays(page).catch(() => {});
+    await locator.click({ timeout: 8000, force: true });
+  }
   await locator.press("ControlOrMeta+a").catch(() => {});
   await locator.press("Delete").catch(() => {});
   await page.waitForTimeout(randomBetween(200, 550));

@@ -5,6 +5,7 @@ import type { Logger } from "../logging/logger.js";
 import { guardStep } from "../browser/guard.js";
 import { fillField, fieldVisible, waitFieldVisible } from "../browser/field.js";
 import { humanMouse, humanPause, humanScroll, randomBetween } from "../browser/human.js";
+import { neutralizeFloatingOverlays } from "../browser/preflight.js";
 import { getByPath } from "../util/path.js";
 import type { FillStepResult } from "../core/types.js";
 
@@ -127,17 +128,20 @@ export async function clickAdvance(page: Page, step: StepSpec): Promise<void> {
     .getByRole("button", { name: step.advance.button, exact: true })
     .filter({ visible: true })
     .first();
+  // Same floating chrome can cover the advance/Submit button below the fold — clear it first.
+  await neutralizeFloatingOverlays(page).catch(() => {});
   try {
     await button.scrollIntoViewIfNeeded().catch(() => {});
     await humanMouse(page).catch(() => {});
     await humanPause(page).catch(() => {});
     await button.click({ timeout: 8000 });
   } catch {
+    await neutralizeFloatingOverlays(page).catch(() => {});
     await page
       .getByText(step.advance.button, { exact: true })
       .filter({ visible: true })
       .first()
-      .click({ timeout: 8000 });
+      .click({ timeout: 8000, force: true });
   }
 }
 

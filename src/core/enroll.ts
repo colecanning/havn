@@ -15,6 +15,10 @@ const SUBMIT_ATTEMPTS = 5;
 const SUBMIT_ATTEMPT_TIMEOUT = 10_000;
 /** How long to keep the browser open waiting for a human to click Submit (handoff). */
 const HANDOFF_TIMEOUT = 300_000;
+/** On Browserbase a reCAPTCHA block is per-session (decided by the egress IP), so a fresh
+ *  session/IP is an independent chance to pass. Retry the WHOLE enrollment this many times on
+ *  a reCAPTCHA block (so 1 + this = total attempts). Each failed attempt creates no enrollment. */
+const MAX_SESSION_RETRIES = 4;
 
 /**
  * Run one patient through a recipe's enrollment flow.
@@ -51,9 +55,10 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
     return { status: "needs_info", needs };
   }
 
-  let driver: EnrollDriver;
-  try {
-    driver = makeDriver(driverName, {
+  // One driver per attempt. On Browserbase each driver.open() spins up a NEW cloud session
+  // (= a new egress IP), which is exactly what makes the session-level retry below worthwhile.
+  const driverFactory = (attemptRunId: string): EnrollDriver =>
+    makeDriver(driverName, {
       headful: !!(opts.headful || opts.handoff), // handoff needs a visible window
       ...(opts.newHeadless ? { newHeadless: true } : {}),
       slowMo: opts.slowMo,
@@ -62,15 +67,62 @@ export async function enroll(opts: EnrollOptions): Promise<EnrollResult> {
       ...(opts.browserbase ? { browserbase: opts.browserbase } : {}),
       humanize: opts.humanize ?? true,
       artifactDir,
-      runId,
+      runId: attemptRunId,
       logger,
     });
-  } catch (err) {
-    return { status: "error", message: (err as Error).message };
-  }
 
-  logger.info("enroll.start", { drug: recipe.drug, submit: !!opts.submit, driver: driverName });
-  return runEnrollment(driver, recipe, opts, runId, logger);
+  // Browserbase: retry the whole enrollment on a fresh session/IP when the Submit is
+  // reCAPTCHA-blocked (the verdict is per-session). Local: a single attempt — a retry would
+  // reuse the same IP, so there's nothing to gain.
+  const maxAttempts = opts.browserbase ? 1 + MAX_SESSION_RETRIES : 1;
+  return runWithSessionRetry(driverFactory, recipe, opts, runId, logger, maxAttempts);
+}
+
+/**
+ * Run the enrollment, retrying the WHOLE flow on a fresh driver when the Submit is
+ * reCAPTCHA-blocked (status "error" + `retryable`). Built for Browserbase, where each new
+ * driver.open() egresses from a new residential IP and the reCAPTCHA verdict is per-session —
+ * so a fresh session is an independent chance to pass. Every NON-retryable outcome (success,
+ * ineligible, page_mismatch, needs/validation, a plain error) returns immediately. Failed
+ * attempts create no enrollment, so only the first success ever submits. Each attempt gets its
+ * own runId so artifacts don't collide.
+ */
+export async function runWithSessionRetry(
+  driverFactory: (attemptRunId: string) => EnrollDriver,
+  recipe: Recipe,
+  opts: EnrollOptions,
+  baseRunId: string,
+  logger: Logger,
+  maxAttempts: number,
+): Promise<EnrollResult> {
+  let last: EnrollResult = { status: "error", message: "enrollment did not run" };
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const attemptRunId = attempt === 1 ? baseRunId : `${baseRunId}-retry${attempt - 1}`;
+    let driver: EnrollDriver;
+    try {
+      driver = driverFactory(attemptRunId);
+    } catch (err) {
+      return { status: "error", message: (err as Error).message };
+    }
+    logger.info("enroll.start", { drug: recipe.drug, submit: !!opts.submit, attempt, maxAttempts, attemptRunId });
+    last = await runEnrollment(driver, recipe, opts, attemptRunId, logger);
+    if (!(last.status === "error" && last.retryable === true)) return last;
+    if (attempt < maxAttempts) {
+      logger.warn("enroll.session_retry", { failedAttempt: attempt, maxAttempts, reason: "recaptcha_blocked" });
+    }
+  }
+  if (maxAttempts > 1) {
+    logger.warn("enroll.session_retries_exhausted", { attempts: maxAttempts });
+    return {
+      status: "error",
+      retryable: true,
+      message:
+        `Submit was reCAPTCHA-blocked on all ${maxAttempts} attempts (each a fresh Browserbase ` +
+        `session/IP). The verdict is IP/session-dependent — retry later, route through a ` +
+        `higher-trust proxy, or use --handoff (a human click).`,
+    };
+  }
+  return last; // single attempt (local): surface its own message
 }
 
 /**
@@ -186,10 +238,11 @@ export async function runEnrollment(
         if (!submitted) {
           return {
             status: "error",
+            retryable: true, // reCAPTCHA verdict is per-session — a fresh session/IP may pass
             message:
               `Submit did not reach the success signal (${recipe.success_signal.match}) after ` +
-              `${SUBMIT_ATTEMPTS} attempts. The form is reCAPTCHA-protected; if this persists, ` +
-              `use handoff (a human click) or the os driver.`,
+              `${SUBMIT_ATTEMPTS} attempts — reCAPTCHA blocked this session. Retry on a fresh ` +
+              `session/IP (Browserbase retries automatically), use --handoff (a human click), or try later.`,
           };
         }
         return { status: "submitted", confirmation: await driver.captureConfirmation() };

@@ -13,6 +13,7 @@
     "validate": "tsx src/cli.ts validate",
     "map": "tsx src/cli.ts map",
     "bb:spike": "tsx scripts/bb-spike.ts",
+    "bb:fp": "tsx scripts/bb-fingerprint.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

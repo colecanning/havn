@@ -51,7 +51,10 @@ export type EnrollResult =
   | { status: "validation_failed"; step: string; fieldKey: string; detail?: string }
   | { status: "ready_to_submit"; capture: ReadyCapture }
   | { status: "submitted"; confirmation: Confirmation }
-  | { status: "error"; message: string };
+  // `retryable` marks a transient, environment-dependent failure (e.g. a reCAPTCHA block,
+  // which is decided per-session/IP) where re-running on a FRESH session may succeed. The
+  // session-level retry wrapper acts on it; exit-code/presentation ignore it.
+  | { status: "error"; message: string; retryable?: boolean };
 
 /** Hook invoked immediately before the irreversible Submit. Deferred (no-op) in v1. */
 export type BeforeSubmitHook = (ctx: {

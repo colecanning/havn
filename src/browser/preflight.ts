@@ -80,17 +80,33 @@ async function dismissChatWidget(page: Page, logger: Logger): Promise<void> {
 }
 
 /**
- * AbbVie's sticky "Important Safety Information" safety bar floats over the page (fixed/
- * sticky position) and intercepts clicks on form fields below the fold — Playwright scrolls
- * the field into view, then the bar covers the click point. We never interact with the bar,
- * so we make it click-through (pointer-events:none) rather than removing it (keeps layout).
- * Harmless where it doesn't apply; on a real headed browser (incl. Browserbase) it's what
- * lets the very first field be clicked at all.
+ * Make AbbVie's floating page chrome click-through so it can't intercept clicks on form
+ * fields/buttons below the fold. The AEM form has several such floaters: the sticky
+ * "Important Safety Information" safety bar, the inline ISI region, a sticky nav menubar,
+ * and dark consent filters. Playwright scrolls a target into view, then one of these covers
+ * the click point ("<…> intercepts pointer events" — the exact failure seen on the
+ * treatment-step "No" radio). We only neutralize elements that actually FLOAT (computed
+ * position fixed/sticky) or are explicit fade overlays — never the form's own static
+ * containers or buttons, which share these wrappers.
+ *
+ * Re-runnable and exported: the wizard re-renders per step and re-stickies its chrome, so
+ * callers invoke this again right before below-the-fold clicks (radio, advance/submit), not
+ * just once at page load. Returns the count neutralized. `logger` is optional so per-click
+ * callers can run it quietly.
  */
-async function neutralizeSafetyBar(page: Page, logger: Logger): Promise<void> {
+export async function neutralizeFloatingOverlays(page: Page, logger?: Logger): Promise<number> {
   const n = await page
     .evaluate(() => {
-      const sel = '[class*="safety-bar"], [id*="safety-bar"], .abbv-safety-bar-fade, .abbv-isi';
+      const sel = [
+        '[class*="safety-bar"]',
+        '[id*="safety-bar"]',
+        ".abbv-safety-bar-fade",
+        ".abbv-isi",
+        ".abbv-inline-use-isi",
+        '[aria-label="Important Safety Information"]',
+        '[role="menubar"]',
+        ".onetrust-pc-dark-filter",
+      ].join(",");
       let count = 0;
       for (const node of Array.from(document.querySelectorAll(sel))) {
         const el = node as HTMLElement;
@@ -103,7 +119,8 @@ async function neutralizeSafetyBar(page: Page, logger: Logger): Promise<void> {
       return count;
     })
     .catch(() => 0);
-  if (n) logger.info("preflight.safety_bar_neutralized", { count: n });
+  if (n && logger) logger.info("preflight.overlays_neutralized", { count: n });
+  return n;
 }
 
 export async function runPreflight(
@@ -121,6 +138,6 @@ export async function runPreflight(
         break;
     }
   }
-  // Always clear the sticky safety bar's click interception, regardless of recipe actions.
-  await neutralizeSafetyBar(page, logger);
+  // Always clear floating chrome's click interception, regardless of recipe actions.
+  await neutralizeFloatingOverlays(page, logger);
 }

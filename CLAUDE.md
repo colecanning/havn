@@ -39,8 +39,11 @@ pnpm enroll examples/patient.example.json --handoff --consent --channel chrome
 # Run the headed browser in the cloud (Browserbase) instead of this laptop. Genuinely
 # headed Chrome + residential proxy; needs BROWSERBASE_API_KEY/PROJECT_ID in .env and a
 # paid (Developer+) plan for the proxy. NOTE: flags go AFTER the file with NO bare `--`
-# (see the gotcha below). See docs/submit-and-recaptcha.md.
+# (see the gotcha below). The Submit is reCAPTCHA-blocked INTERMITTENTLY (per-session/IP), so
+# this AUTO-RETRIES the whole enrollment on a fresh session/IP up to 5x (stops on first success;
+# failed attempts create no enrollment). See docs/submit-and-recaptcha.md.
 pnpm bb:spike                                                          # non-destructive connectivity check first
+pnpm bb:fp                                                             # IP + GPU + live reCAPTCHA v3 score (non-destructive)
 pnpm enroll examples/patient.example.json --remote browserbase --submit --consent --test-email
 
 pnpm map                                        # drive the live form, snapshot unmapped steps
@@ -144,12 +147,34 @@ nut.js / OS-input / a no-CDP driver.
 display is required.** For a server, run headed Chrome under a **virtual display (xvfb)**
 on Linux; on macOS you need a real logged-in GUI session. Or run it off-laptop on
 **Browserbase** (`--remote browserbase`) — genuinely headed cloud Chrome + residential
-proxy, no xvfb to manage. **Measured: the full fill works, but the Submit is 400'd 5/5 even
-with a confirmed residential IP** — a fresh cloud session lacks the warmed Google identity
-that dominates the reСAPTCHA score, so unattended Submit does NOT pass yet (needs a warmed
-Browserbase Context, handoff, or Scale "Verified"; see `docs/submit-and-recaptcha.md`).
-`--handoff` remains a fallback (human clicks Submit). **Never** add CAPTCHA-solving/token-relay
-services.
+proxy, no xvfb to manage. **Measured 2026-06-24: the Submit is INTERMITTENT on Browserbase** —
+two back-to-back real `--submit` runs, identical config: one PASSED (reCAPTCHA cleared on the
+2nd retry, real enrollment created), the next FAILED 5/5 with
+`CaptchaValidationException: "The response parameter is invalid or malformed."` A valid
+~2.6k-char token was generated + attached on every attempt, so this is **AbbVie's server
+rejecting Google's verdict for that session**, not a token bug on our side. Pass/fail is
+**per-session (its IP/standing)**: a bad session fails all 5 retries (same IP), which is why
+the click-retry loop AND `--handoff` (human clicks in the same session) both fail on a bad
+session. Browserbase itself is clean — `pnpm bb:fp` shows a **real Intel GPU**
+(`navigator.webdriver:false`) and **0.9 reCAPTCHA v3 across 5 IPs** on a generic key — so the
+lever is the egress **IP reputation** for AbbVie's sitekey, not the fingerprint.
+
+**Fallback shipped — session-level retry (default ON for Browserbase).** Because the block is
+per-session, `enroll` now **re-runs the whole enrollment on a fresh Browserbase session/IP up to
+5 total attempts** (`MAX_SESSION_RETRIES=4`), stopping on the first success
+(`runWithSessionRetry` in `src/core/enroll.ts`; the captcha failure is flagged `retryable`).
+Failed attempts create no enrollment, so only the first success ever submits — no duplicates.
+**Verified 2026-06-24:** a real run was reCAPTCHA-blocked on attempt 1, then **succeeded on a
+fresh session (attempt 2)** and created the card. Local runs do NOT retry (same IP = no gain).
+The other within-policy lever, not yet built: a higher-trust **mobile/dedicated-ISP proxy**
+(Browserbase BYO external proxy) to raise the per-session pass rate. NOTE: an earlier "400'd
+5/5, needs warmed Google identity" claim AND a same-day "Submit PASSES" claim were both
+over-stated; the accurate picture is intermittent-with-retry (see
+`docs/submit-and-recaptcha.md`). Separately, an intermittent **click-interception** flake
+(floating ISI/safety-bar/menubar chrome covering below-the-fold fields) is **fixed** by
+`neutralizeFloatingOverlays` (`src/browser/preflight.ts`), now run before every field/advance
+click — the form fills reliably; only the captcha is intermittent. `--handoff` helps only on a
+good-IP session. **Never** add CAPTCHA-solving/token-relay services.
 
 | | **Headed** (real Chrome) | **Headless** (old + `--headless-new`) |
 |---|---|---|
